@@ -1,0 +1,16 @@
+{
+  "name": "muhadyan-skills",
+  "version": "0.1.0",
+  "description": "Adyan's agent skills for everyday engineering: before/after demo videos and more.",
+  "author": {
+    "name": "M Adyan Rohutomo",
+    "url": "https://github.com/muhadyan"
+  },
+  "homepage": "https://github.com/muhadyan/skills",
+  "repository": "https://github.com/muhadyan/skills",
+  "license": "MIT",
+  "keywords": ["engineering", "skills", "video", "playwright", "demo"],
+  "skills": [
+    "./skills/engineering/before-after-video"
+  ]
+}
