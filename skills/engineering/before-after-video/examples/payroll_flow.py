@@ -1,25 +1,31 @@
-"""Payroll before/after flow (local demo app). Usage: python payroll_flow.py before|after OUT_DIR
+"""Payroll before/after flow (local demo app) — a template to copy, not run as-is.
+
+Usage: PYTHONPATH=<skill>/scripts uv run --with "playwright>=1.59" python payroll_flow.py before|after OUT --topic payroll
 
 The change being shown: the tax field turned a typed '-' into 0, so a minus
 amount (a tax refund) could not be entered, and the payroll table had no
-Tax Allowance column. One script records both takes; MODE picks the branch.
+Tax Allowance column. One script records both takes; the mode picks the branch.
 """
+import argparse
 import os
 import sys
-from pathlib import Path
 
-# This skill's scripts/ folder. Change it if the skill is installed elsewhere.
-sys.path.insert(0, str(Path.home() / ".claude/skills/before-after-video/scripts"))
-from recorder import Recorder  # noqa: E402
+from recorder import Recorder  # found through PYTHONPATH=<skill>/scripts
 
-MODE, OUT = sys.argv[1], sys.argv[2]
+ap = argparse.ArgumentParser()
+ap.add_argument("mode", choices=["before", "after"])
+ap.add_argument("out_dir")
+ap.add_argument("--topic", default="payroll")
+args = ap.parse_args()
+
+MODE, OUT = args.mode, args.out_dir
 BASE = "http://localhost:5173/"  # local dev app
 PASSWORD = os.environ.get("DEMO_PASSWORD", "")  # never hardcode credentials
 if not PASSWORD:
     sys.exit("set DEMO_PASSWORD to the demo user's password")
 L = MODE.upper()
 
-with Recorder(MODE, OUT) as r:
+with Recorder(MODE, OUT, topic=args.topic) as r:
     p = r.page
     row = lambda name: p.locator("tbody tr", has_text=name)  # noqa: E731
 
@@ -37,7 +43,7 @@ with Recorder(MODE, OUT) as r:
     r.caption(f"{L}: edit Alice and enter a minus income tax (tax refund)")
     r.scroll(dx=1200, over=".overflow-x-auto"); r.pause(1)
     r.click(row("Alice (test)").get_by_role("button", name="Edit")); r.pause(1)
-    tax = row("Alice (test)").locator("input[type=number]").nth(-2)
+    tax = row("Alice (test)").get_by_role("spinbutton", name="Income tax")
     r.click(tax); r.select_all(); r.pause(1.2)
     r.caption(f"{L}: press the minus key '-' (yellow box = keys pressed)"); r.pause(1.5)
     r.type("-"); r.pause(1)  # the key moment: type it alone, then show the result
@@ -65,7 +71,7 @@ with Recorder(MODE, OUT) as r:
         r.move_to(p.locator("thead th", has_text="Tax Allowance")); r.pause(2.5)
         r.scroll(dx=1200, over=".overflow-x-auto"); r.pause(0.8)
         r.click(row("Bob (test)").get_by_role("button", name="Edit")); r.pause(1)
-        allowance = row("Bob (test)").locator("input[type=number]").nth(2)
+        allowance = row("Bob (test)").get_by_role("spinbutton", name="Tax allowance")
         r.click(allowance); r.select_all(); r.type("1000000", delay_ms=180); r.pause(1.2)
         r.click(row("Bob (test)").get_by_role("button", name="Save")); r.pause(1.5)
         r.scroll(dx=-300, over=".overflow-x-auto")

@@ -1,57 +1,68 @@
 ---
 name: before-after-video
-description: Record before/after MP4 videos of a UI change (visible mouse pointer, click rings, key-press box, captions) and post them inside a ticket comment. Use when asked to record, capture or show the before/after of a change, a demo video, or a screen recording for a ticket or PR.
+description: Records before/after MP4 videos of a UI change (visible mouse pointer, click rings, key-press box, captions) plus a side-by-side version, and can post them to a GitHub PR/issue or a ClickUp ticket. Use when asked to record or show the before/after of a UI change, or a demo video of a change for a ticket or PR.
+argument-hint: "[PR/issue/ticket URL to post to]"
 ---
 
 # Before/after video
 
-Two MP4s — **before** (old code) and **after** (new code) — that replay the **same flow** with real input events, so a viewer sees exactly what a user gets. Headless video has no pointer, so `scripts/recorder.py` draws one: a pointer arrow that glides to each target, a red ring on every click, a yellow "Keys pressed" box (password fields show `•`), and a caption bar.
+Two MP4s — **before** (old code) and **after** (new code) — that replay the **same flow** with real input events, plus one **side-by-side** MP4. Headless video has no pointer, so `scripts/recorder.py` draws one: a pointer arrow that glides to each target, a red ring on every click, a yellow "Keys pressed" box (password fields show `•`), a caption bar, and a BEFORE/AFTER badge.
 
-Tools: Python with the `playwright` package (any venv; `channel="chrome"` drives the installed Google Chrome, so no browser download), `ffmpeg`, and Claude in Chrome for the upload.
+The scripts live in `${CLAUDE_SKILL_DIR}/scripts`. Outside Claude Code that variable is not filled in: use the `scripts/` folder next to this SKILL.md.
 
 ## Steps
 
+0. **Check the tools.** `uv --version`, `ffmpeg -version`, and Google Chrome installed (without Chrome, pass `channel=None` to `Recorder` and run `uv run --with "playwright>=1.59" playwright install chromium`). Done when all three are there.
+
 1. **Run the app locally** and seed the data the flow needs (test users, rows). Write the seed as a re-runnable reset script: both takes must start from identical data. Done when one command restores the start state.
 
-2. **Write one flow script** for both takes, switching on `MODE` (`before`/`after`). Start from [`examples/payroll_flow.py`](examples/payroll_flow.py). Import the helper by adding this skill's `scripts/` folder to `sys.path` (the path below is a manual install; a plugin or `npx skills` install puts the skill elsewhere, so use the folder this SKILL.md sits in):
+2. **Write one flow script** for both takes, switching on the mode (`before`/`after`). Copy [`examples/payroll_flow.py`](examples/payroll_flow.py) as the template; `recorder.py` is imported, not copied:
 
    ```python
-   sys.path.insert(0, str(Path.home() / ".claude/skills/before-after-video/scripts"))
    from recorder import Recorder
-   with Recorder(MODE, OUT_DIR) as r:   # r.page is the Playwright page
+   with Recorder(mode, out_dir, topic=topic) as r:   # r.page is the Playwright page
        r.goto(url); r.click(locator); r.type("-321504")
-       r.caption(f"{MODE.upper()}: what to look at"); r.pause(3)
+       r.caption(f"{mode.upper()}: what to look at"); r.pause(3)
    ```
 
-   - Drive every interaction through `r.click` / `r.type` / `r.press` / `r.scroll(dx=…, over=…)` — real events, so bugs that only real key presses trigger show up.
+   Run it with Playwright ≥ 1.59 (sharper capture through `page.screencast`; older versions fall back to the blurrier built-in recorder):
+
+   ```bash
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/scripts" uv run --with "playwright>=1.59" python flow.py after OUT --topic <topic>
+   ```
+
+   - Drive every interaction through `r.click` / `r.type` / `r.press` / `r.scroll(dx=…, over=…)` — real events, so bugs that only real key presses trigger show up. Wait with `r.pause`, never `time.sleep` (sleep drops frames).
    - Narrate each step with `r.caption(...)`: say what is pressed, then what happened. Point at the evidence with `r.move_to(...)` and hold `r.pause(3–5)`.
    - When the key moment is a single key, type it alone, pause, caption the result, then type the rest.
    - Use `r.caption(..., top=True)` when the evidence sits at the bottom of the screen.
+   - Type OTPs, tokens and keys with `r.type(..., secret=True)` so the key box shows dots.
    - Hash-routed SPAs never fire `load`: wait with `page.wait_for_function("location.hash.startsWith('#…')")`.
 
-3. **Record the before take on the old code.** Put the old UI files back without touching history: `git checkout <base-commit> -- <changed frontend paths>` (a dev server hot-reloads them), reset data, run `python flow.py before OUT`. Then restore with `git checkout HEAD -- <same paths>`, reset data, run `python flow.py after OUT`. Done when `git status` shows only what was there before you started.
+   Done when the after take runs end to end on the current code and prints `OUT/<topic>_AFTER.mp4`.
 
-4. **Check the frames** before sharing:
-   `ffmpeg -i OUT/before.mp4 -vf "fps=1/3.5,scale=720:-1,tile=4x4" -frames:v 1 sheet.png`, then Read the PNG. Done when every caption's claim is visible in a frame, the pointer is on the evidence, and no secret appears on screen.
+3. **Record the before take on the old code.**
+   - Find the base: `git merge-base HEAD origin/main` (or the commit the user names).
+   - Check the changed files are safe to swap: `git status --porcelain -- <changed frontend paths>` must print nothing. If it prints files, stop and ask the user to commit, or run `git stash push -- <paths>` with their OK.
+   - `git checkout <base> -- <paths>` (a dev server hot-reloads them), reset data, run the flow with `before`. Then `git checkout HEAD -- <paths>` (and `git stash pop` if you stashed), reset data, run the flow with `after`.
+   - If the change also touches backend code or migrations, swapping only frontend files gives a wrong before take: say so and swap those too, or ask.
 
-5. **Post both MP4s inside one ticket comment.** See [ClickUp upload](#clickup-upload). Name files `<topic>_BEFORE.mp4` / `<topic>_AFTER.mp4` (add `_v2`… for re-takes). Copy them to `~/Downloads/` for the user.
+   Done when both MP4s exist and `git status` shows only what was there before you started.
 
-## ClickUp upload
+4. **Make the side-by-side:** `python3 ${CLAUDE_SKILL_DIR}/scripts/compose.py OUT --topic <topic>` → `OUT/<topic>_SIDE_BY_SIDE.mp4`. Add `--gif` only when the user asks for a GIF (READMEs, email). Done when the file prints with its size.
 
-The ClickUp MCP has no comment-attachment call (`clickup_request_attachment_upload` attaches to the task, not a comment), so post through the web UI with Claude in Chrome. ClickUp's composer often ignores the extension's synthetic clicks and typing; drive it with page JavaScript, which is reliable:
+5. **Check the frames** of both takes before sharing. For each MP4, read its length with `ffprobe -v error -show_entries format=duration -of csv=p=0 X.mp4`, then
+   `ffmpeg -i X.mp4 -vf "fps=16/<length>,scale=720:-1,tile=4x4" -frames:v 1 X_sheet.png` and Read the PNG. Done when every caption's claim is visible in a frame, the pointer is on the evidence, and no secret appears on screen.
 
-1. Open the task URL; wait ~5 s.
-2. Open the comment's attach menu and confirm the newest file input sits in the overlay:
-   `document.querySelector('.comment-bar-root .cu-cloud-buttons-dropdown__toggle').click()` — the last `input[type=file]` must have a `cdk-overlay-container` ancestor (the others belong to the task's attachment area).
-3. `find` that input ("file upload input inside the comment attachment dropdown"), then `file_upload` both MP4 paths to its ref (under 10 MB per call). Wait ~5 s.
-4. Insert the caption text into the last block of `.comment-bar__editor [contenteditable=true]` with a Range + `document.execCommand('insertText', false, text)`. Keep it ASCII-friendly; check `editor.children` shows two video blocks and the text.
-5. `document.querySelector('.comment-bar__send').click()`.
-6. Done when `clickup_get_task_comments` returns a comment whose text contains both `….mp4?view=open` URLs. If an earlier comment points at older files, update it with `clickup_update_comment` (text-only comments are safe to rewrite this way).
+6. **Deliver.** By default, save only: copy `<topic>_BEFORE.mp4`, `<topic>_AFTER.mp4` and `<topic>_SIDE_BY_SIDE.mp4` to `~/Downloads/` (add `_v2`… for re-takes) and give the user the paths. Post only when the user names a place:
+   - GitHub PR or issue → [share/github.md](share/github.md)
+   - ClickUp task → [share/clickup.md](share/clickup.md)
+   - Anything else → give the paths and say posting there is not automated yet.
 
-Deleting old comments or attachments is permanent: leave it to the user and tell them which ones.
+   Done when the user has the paths (and the post URL, if posted).
 
 ## Gotchas
 
-- Playwright's bundled browser build often mismatches the installed package (`Executable doesn't exist … playwright install`). `channel="chrome"` (the default in `Recorder`) sidesteps it.
-- `Recorder` takes the first match of a locator, so a text that appears twice will not abort the take — but check the pointer landed on the intended one.
-- A take that raises leaves no MP4 (the raw WebM stays in `OUT/_<name>_raw/`). Fix the flow and re-run from the data reset.
+- Over 10 MB, GitHub's free plan refuses the video. `recorder.py` and `compose.py` print each file's size; re-record with `Recorder(..., crf=26)` or compose with `--crf 26` to shrink it.
+- `Recorder` takes the first match of a locator, so a text that appears twice will not abort the take — but check the pointer landed on the intended one. A locator that matches nothing fails after 10 s with `not visible: …`.
+- A take that raises leaves no MP4 (on the fallback path the raw WebM stays in `OUT/_<mode>_raw/`). Fix the flow and re-run from the data reset.
+- Playwright's bundled browser build often mismatches the installed package (`Executable doesn't exist … playwright install`). `channel="chrome"` (the default) sidesteps it.
