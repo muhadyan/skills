@@ -4,7 +4,7 @@
   journal.py hook start|end --agent claude|codex   (stdin: hook JSON)
   journal.py summarize [--agent A] TRANSCRIPT
   journal.py sweep [--days 30] [--max 5]           (--max 0 = no limit)
-  journal.py export
+  journal.py export [--force]                     (--force allows deleting 5+ exported notes)
   journal.py context [CWD]
 """
 from __future__ import annotations
@@ -31,7 +31,8 @@ def main(argv=None) -> int:
     w = sub.add_parser("sweep")
     w.add_argument("--days", type=float, default=30)
     w.add_argument("--max", type=int, default=sweep.DEFAULT_MAX)
-    sub.add_parser("export")
+    e = sub.add_parser("export")
+    e.add_argument("--force", action="store_true")
     c = sub.add_parser("context")
     c.add_argument("cwd", nargs="?", default=os.getcwd())
     args = ap.parse_args(argv)
@@ -45,7 +46,7 @@ def main(argv=None) -> int:
     elif args.cmd == "sweep":
         print(f"sweep: {sweep.run(cfg, days=args.days, max_items=args.max)} summarized", flush=True)
     elif args.cmd == "export":
-        r = export.run(cfg)
+        r = export.run(cfg, force=args.force)
         print("export: not configured" if r is None else
               f"export: {len(r.exported)} exported, {len(r.blocked)} blocked {r.blocked}, commit={r.committed}")
     elif args.cmd == "context":

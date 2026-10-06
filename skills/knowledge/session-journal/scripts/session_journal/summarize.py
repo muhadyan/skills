@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import json
 import subprocess
+import traceback
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import export, gitsync, note, transcript
+from . import export, gitsync, note, state, transcript
 from .config import Config
 
 SCHEMA = {
@@ -76,19 +77,32 @@ def _locked(path: Path) -> bool:
 
 
 def summarize_file(cfg: Config, path: Path, model: Optional[Callable[[Config, str], dict]] = None) -> Optional[str]:
-    """Write the note for one transcript. Returns its vault path, or None when skipped."""
-    t = transcript.parse(Path(path))
+    """Write the note for one transcript. Returns its vault path, or None when skipped.
+    The transcript is marked done once handled, so the sweep does not pay for it twice."""
+    path = Path(path)
+    mtime = path.stat().st_mtime
+    rel = _write_note(cfg, path, model)
+    state.mark_done(cfg, path, mtime)
+    if rel:
+        try:
+            export.run(cfg)  # also removes a note that lost brand_safe
+        except Exception:
+            print(f"export failed after {rel}\n{traceback.format_exc()}", flush=True)
+    return rel
+
+
+def _write_note(cfg: Config, path: Path, model) -> Optional[str]:
+    t = transcript.parse(path)
     if not t.interactive or len(t.prompts) < cfg.min_prompts:
         return None
     rel = note.rel_path(t)
     if _locked(cfg.vault / rel):
         return None
-    eligible = note.under_roots(t.cwd, cfg.brand_safe_roots)
+    eligible = note.eligible(t, cfg.brand_safe_roots)
     data = (model or call_claude)(cfg, build_prompt(transcript.condense(t), eligible))
     if data.get("skip"):
         return None
     text = note.render(t, data, eligible)
-    meta, _ = note.split(text)
-    gitsync.sync_write(cfg.vault, {rel: text}, f"journal: {t.agent} {meta['title'][:60]}", cfg.state_dir)
-    export.run(cfg)  # also removes a note that lost brand_safe
+    title = str(note.split(text)[0].get("title", ""))
+    gitsync.sync_write(cfg.vault, {rel: text}, f"journal: {t.agent} {title[:60]}", cfg.state_dir)
     return rel

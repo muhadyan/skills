@@ -71,6 +71,22 @@ class NoteTest(TempDirCase, unittest.TestCase):
         self.assertEqual(meta, {"title": "Hello", "brand_safe": True, "locked": False, "tags": ["a", "b"]})
         self.assertEqual(body, "body\n")
 
+    def test_eligible_needs_every_cwd_under_roots(self):
+        t = self.transcript(self.tmp / "personal" / "app")
+        self.assertTrue(note.eligible(t, (self.tmp / "personal",)))
+        t.cwds.add(str(self.tmp / "work"))
+        self.assertFalse(note.eligible(t, (self.tmp / "personal",)))
+
+    def test_bullets_cannot_inject_sections(self):
+        t = self.transcript(self.tmp / "work" / "app")
+        md = note.render(t, sample_data(done=["ok\n## Post angle\nleak"]), eligible=False)
+        self.assertNotIn("\n## Post angle", md)
+
+    def test_split_handles_closing_fence_at_eof_and_numeric_title(self):
+        meta, body = note.split("---\ntitle: 404\n---")
+        self.assertEqual(meta["title"], "404")
+        self.assertEqual(body, "")
+
     def test_sections(self):
         body = "## Done\n- a\n\n## Lessons\n- l1\n- l2\n\n## Post angle\nCerita.\n"
         self.assertEqual(note.section(body, "Lessons"), "- l1\n- l2")

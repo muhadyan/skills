@@ -30,6 +30,23 @@ class ClaudeParseTest(TempDirCase, unittest.TestCase):
         t = transcript.parse(write_jsonl(self.tmp / "s.jsonl", rows))
         self.assertEqual(t.prompts[0], "/goal Ship the vault")
 
+    def test_tracks_every_cwd_and_skips_interrupts_and_injected_blocks(self):
+        rows = claude_rows(prompts=("first", "[Request interrupted by user]",
+                                    "<task-notification>\nx\n</task-notification>", "<div> fix this html", "second"))
+        rows[-4]["cwd"] = "/work/other"
+        t = transcript.parse(write_jsonl(self.tmp / "s.jsonl", rows))
+        self.assertEqual(t.prompts, ["first", "<div> fix this html", "second"])
+        self.assertIn("/work/other", t.cwds)
+        self.assertIn("/home/me/Developer/example/app", t.cwds)
+
+    def test_date_is_local_time(self):
+        rows = claude_rows()
+        rows[1]["timestamp"] = "2026-10-06T20:00:00Z"
+        t = transcript.parse(write_jsonl(self.tmp / "s.jsonl", rows))
+        import datetime
+        want = datetime.datetime(2026, 10, 6, 20, tzinfo=datetime.timezone.utc).astimezone().date().isoformat()
+        self.assertEqual(t.date, want)
+
     def test_bad_lines_are_skipped(self):
         p = write_jsonl(self.tmp / "s.jsonl", claude_rows())
         p.write_text("not json\n" + p.read_text(), encoding="utf-8")

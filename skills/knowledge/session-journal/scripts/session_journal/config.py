@@ -22,7 +22,6 @@ class Config:
     brand_safe_roots: Tuple[Path, ...]
     denylist: Path
     export_repo: Optional[Path]
-    export_remote: str
     export_dir: str
     export_rules: str
     state_dir: Path
@@ -63,7 +62,6 @@ def load(path: Optional[Path] = None) -> Config:
         brand_safe_roots=roots,
         denylist=_path(v["DENYLIST"]) if v.get("DENYLIST") else vault / "_meta" / "nda-denylist.txt",
         export_repo=_path(v["EXPORT_REPO"]) if v.get("EXPORT_REPO") else None,
-        export_remote=v.get("EXPORT_REMOTE", ""),
         export_dir=v.get("EXPORT_DIR", "knowledge"),
         export_rules=v.get("EXPORT_RULES", "rules.json"),
         state_dir=_path(v.get("STATE_DIR", "~/.local/state/session-journal")),

@@ -16,17 +16,20 @@ Scripts live in `${CLAUDE_SKILL_DIR}/scripts` (outside Claude Code: the `scripts
 2. **SessionEnd hook** (`J hook end --agent …`): starts a detached `J summarize <transcript>` and returns at once.
 3. **summarize**: reads the transcript (prompts and replies only), skips sessions with fewer than `MIN_PROMPTS`
    real prompts or headless runs (`claude -p`, `codex exec`), asks a tool-less, settings-less `claude -p` for a
-   JSON note, and commits `sessions/YYYY/MM/<date>-<agent>-<id8>.md` to the vault. Resumed sessions overwrite their
-   note unless the note has `locked: true`.
+   JSON note, commits `sessions/YYYY/MM/<date>-<agent>-<id8>.md`, then pulls and pushes. Offline or on a rebase
+   conflict the commit stays local and the next sync pushes it. Resumed sessions overwrite their note unless it
+   has `locked: true`.
 4. **sweep**: the backstop for sessions whose end hook never ran (crash, killed terminal). Summarizes transcripts
-   idle for `IDLE_HOURS` that changed since the last sweep, oldest first, `--max` per run.
-5. **export**: the knowledge base. Three gates keep private work out:
-   - Gate 1, path: only sessions whose cwd is under `BRAND_SAFE_ROOTS` can be `brand_safe`; the model can only
-     lower it. Work sessions get no post angle at all.
-   - Gate 2, denylist: notes whose title, lessons or post angle match a regex in `DENYLIST` or an `nda*`
-     regex rule in the export repo's `rules.json` are blocked. A bad regex stops the export.
+   idle for `IDLE_HOURS` that changed since they were last handled, oldest first, `--max` per run. State is
+   `processed.json`; a transcript that fails 3 times at the same version is left alone.
+5. **export**: the knowledge base. Only title, date, tags and the post angle leave the vault. Gates:
+   - Gate 1, path: a note is `brand_safe` only when every folder the session worked in is under
+     `BRAND_SAFE_ROOTS`; the model can only lower it, and export re-checks the note's `cwd`.
+   - Gate 2, denylist: title, tags and post angle are matched against `DENYLIST` plus the export repo's
+     `nda*` regex rules in `rules.json`. A missing or empty denylist, a bad regex or a missing `sessions/`
+     stops the export. Deleting 5+ exported notes at once needs `J export --force`.
    - Gate 3, downstream: the bot's own rules and reviewer.
-   Exported files hold only title, date, tags, lessons and post angle, plus a generated `INDEX.md`.
+   Export only touches files it generated (marked `generated: session-journal`).
 
 Every child process runs with `SESSION_JOURNAL=1`, so its own hooks do nothing (no recursion).
 Logs: `~/.local/state/session-journal/journal.log`. State: `processed.json` in the same folder.

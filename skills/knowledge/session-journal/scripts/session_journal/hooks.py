@@ -18,6 +18,7 @@ JOURNAL = Path(__file__).resolve().parents[1] / "journal.py"
 MAX_LESSONS = 10
 MAX_NOTES_SCANNED = 300
 CONTEXT_CAP = 2000
+LOG_MAX_BYTES = 5_000_000
 
 
 def child_env() -> dict:
@@ -28,8 +29,12 @@ def child_env() -> dict:
 
 
 def log_path(cfg: Config) -> Path:
+    """journal.log, rotated to journal.log.1 past LOG_MAX_BYTES."""
     cfg.state_dir.mkdir(parents=True, exist_ok=True)
-    return cfg.state_dir / "journal.log"
+    log = cfg.state_dir / "journal.log"
+    if log.exists() and log.stat().st_size > LOG_MAX_BYTES:
+        log.replace(log.with_suffix(".log.1"))
+    return log
 
 
 def spawn(cfg: Config, args: List[str]) -> None:

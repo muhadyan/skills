@@ -91,7 +91,7 @@ class TempDirCase:
         self.cfg = Config(
             vault=self.vault, model="test-model", claude_bin="claude",
             brand_safe_roots=(self.tmp / "personal",), denylist=self.vault / "_meta" / "nda-denylist.txt",
-            export_repo=None, export_remote="", export_dir="knowledge", export_rules="rules.json",
+            export_repo=None, export_dir="knowledge", export_rules="rules.json",
             state_dir=self.tmp / "state", min_prompts=2, idle_hours=2.0,
             claude_projects=self.tmp / "claude-projects", codex_sessions=self.tmp / "codex-sessions",
         )

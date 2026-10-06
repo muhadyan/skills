@@ -8,14 +8,18 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
-from typing import Iterator, List, Optional, Tuple
+from typing import Iterator, List, Optional, Set, Tuple
 
 TURN_CAP = 4000
 DEFAULT_CAP = 60000
 CUT_MARK = "\n[... middle of session cut ...]\n"
 COMMAND_RE = re.compile(r"<command-name>\s*(/?[^<]*?)\s*</command-name>")
 ARGS_RE = re.compile(r"<command-args>(.*?)</command-args>", re.DOTALL)
+# A whole message that is one injected tag block (<system-reminder>, <task-notification>, <environment_context>...).
+INJECTED_RE = re.compile(r"^<([\w-]+)[^>]*>.*</\1>\s*$", re.DOTALL)
+NOT_PROMPTS = ("# AGENTS.md", "Caveat:", "[Request interrupted")
 
 
 @dataclass
@@ -23,10 +27,18 @@ class Transcript:
     agent: str
     session_id: str = ""
     cwd: str = ""
+    cwds: Set[str] = field(default_factory=set)
     date: str = ""
     interactive: bool = True
     prompts: List[str] = field(default_factory=list)
     turns: List[Tuple[str, str]] = field(default_factory=list)
+
+    def saw(self, cwd: str, timestamp: str = "") -> None:
+        if cwd:
+            self.cwd = self.cwd or cwd
+            self.cwds.add(cwd)
+        if timestamp and not self.date:
+            self.date = local_date(timestamp)
 
     def add(self, role: str, text: str) -> None:
         text = text.strip()
@@ -35,6 +47,14 @@ class Transcript:
         if role == "user":
             self.prompts.append(text)
         self.turns.append((role, text))
+
+
+def local_date(timestamp: str) -> str:
+    """YYYY-MM-DD in this machine's time zone (UTC transcripts would date evening work tomorrow)."""
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).astimezone().date().isoformat()
+    except ValueError:
+        return timestamp[:10]
 
 
 def _rows(path: Path) -> Iterator[dict]:
@@ -55,7 +75,7 @@ def _user_text(text: str) -> str:
     if cmd:
         args = ARGS_RE.search(text)
         return f"{cmd.group(1)} {args.group(1).strip()}".strip() if args else cmd.group(1)
-    if text.startswith("<") or text.startswith("# AGENTS.md") or text.startswith("Caveat:"):
+    if INJECTED_RE.match(text) or text.startswith(NOT_PROMPTS):
         return ""
     return text
 
@@ -72,8 +92,7 @@ def parse_claude(path: Path) -> Transcript:
     t = Transcript(agent="claude", session_id=path.stem)
     for row in _rows(path):
         t.session_id = row.get("sessionId") or t.session_id
-        t.cwd = t.cwd or row.get("cwd", "")
-        t.date = t.date or str(row.get("timestamp", ""))[:10]
+        t.saw(row.get("cwd", ""), str(row.get("timestamp", "")))
         if row.get("entrypoint") == "sdk-cli":
             t.interactive = False
         if row.get("isMeta") or row.get("isSidechain"):
@@ -92,10 +111,11 @@ def parse_codex(path: Path) -> Transcript:
         payload = row.get("payload") or {}
         if row.get("type") == "session_meta":
             t.session_id = payload.get("id") or payload.get("session_id") or ""
-            t.cwd = payload.get("cwd", "")
-            t.date = str(payload.get("timestamp") or row.get("timestamp", ""))[:10]
+            t.saw(payload.get("cwd", ""), str(payload.get("timestamp") or row.get("timestamp", "")))
             t.interactive = payload.get("source") != "exec" and payload.get("originator") != "codex_exec"
             continue
+        if row.get("type") == "turn_context":
+            t.saw(payload.get("cwd", ""))
         if row.get("type") != "response_item" or payload.get("type") != "message":
             continue
         role = payload.get("role")

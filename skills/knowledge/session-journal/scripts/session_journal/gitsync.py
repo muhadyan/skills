@@ -1,4 +1,9 @@
-"""Write files into a git repo under a lock: pull, write, commit, push (with retry)."""
+"""Write files into a git repo under a lock: write, commit, then pull --rebase and push.
+
+The commit happens first so an offline Mac or a rebase conflict never loses a note:
+a failed sync aborts the rebase, keeps the local commit, and the next sync pushes it.
+Other tools (obsidian-git, a second vault writer) share the lock file path below.
+"""
 from __future__ import annotations
 
 import fcntl
@@ -10,6 +15,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Iterator
 
 PUSH_TRIES = 3
+INDEX_LOCK_TRIES = 5
 
 
 class GitError(Exception):
@@ -17,7 +23,11 @@ class GitError(Exception):
 
 
 def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
-    proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=120)
+    for attempt in range(INDEX_LOCK_TRIES):
+        proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=120)
+        if "index.lock" not in proc.stderr:  # obsidian-git may hold the index for a moment
+            break
+        time.sleep(1 + attempt)
     if check and proc.returncode != 0:
         raise GitError(f"git {' '.join(args)}: {proc.stderr.strip()[:500]}")
     return proc
@@ -25,7 +35,7 @@ def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProc
 
 @contextmanager
 def repo_lock(repo: Path, state_dir: Path) -> Iterator[None]:
-    """One writer per repo across processes (hooks, sweeps, exports)."""
+    """One writer per repo across processes. Path contract: repo-<sha1(resolved path)[:12]>.lock."""
     state_dir.mkdir(parents=True, exist_ok=True)
     key = hashlib.sha1(str(repo.resolve()).encode()).hexdigest()[:12]
     with open(state_dir / f"repo-{key}.lock", "w") as fh:
@@ -36,8 +46,26 @@ def repo_lock(repo: Path, state_dir: Path) -> Iterator[None]:
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def _has_remote(repo: Path) -> bool:
+def has_remote(repo: Path) -> bool:
     return bool(_git(repo, "remote", check=False).stdout.strip())
+
+
+def pull(repo: Path) -> bool:
+    """pull --rebase; on failure abort the rebase so the repo is never left half-rebased."""
+    if _git(repo, "pull", "-q", "--rebase", "--autostash", check=False).returncode == 0:
+        return True
+    _git(repo, "rebase", "--abort", check=False)
+    return False
+
+
+def _push(repo: Path) -> bool:
+    for attempt in range(PUSH_TRIES):
+        if _git(repo, "push", "-q", check=False).returncode == 0:
+            return True
+        time.sleep(1 + attempt * 2)
+        if not pull(repo):
+            return False
+    return False
 
 
 def _safe_target(repo: Path, rel: str) -> Path:
@@ -47,20 +75,13 @@ def _safe_target(repo: Path, rel: str) -> Path:
     return target
 
 
-def _pull(repo: Path) -> None:
-    _git(repo, "pull", "-q", "--rebase", "--autostash")
-
-
 def sync_write(repo: Path, files: Dict[str, str], message: str, state_dir: Path,
                deletes: Iterable[str] = ()) -> bool:
-    """Make the repo hold `files` (and not `deletes`), commit only those paths, push.
-    Returns True when a commit was made."""
+    """Make the repo hold `files` (and not `deletes`), commit only those paths, then sync.
+    Returns True when a commit was made. A failed pull/push is reported, never raised."""
     targets = {rel: _safe_target(repo, rel) for rel in files}
     gone = {rel: _safe_target(repo, rel) for rel in deletes}
     with repo_lock(repo, state_dir):
-        remote = _has_remote(repo)
-        if remote:
-            _pull(repo)
         for rel, path in targets.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(files[rel], encoding="utf-8")
@@ -68,21 +89,12 @@ def sync_write(repo: Path, files: Dict[str, str], message: str, state_dir: Path,
             if path.exists():
                 path.unlink()
         paths = list(targets) + list(gone)
-        if not paths:
-            return False
-        _git(repo, "add", "-A", "--", *paths)
-        if not _git(repo, "diff", "--cached", "--name-only", "--", *paths).stdout.strip():
-            return False
-        _git(repo, "commit", "-q", "-m", message, "--", *paths)
-        if remote:
-            _push(repo)
-        return True
-
-
-def _push(repo: Path) -> None:
-    for attempt in range(PUSH_TRIES):
-        if _git(repo, "push", "-q", check=False).returncode == 0:
-            return
-        time.sleep(1 + attempt * 2)
-        _pull(repo)
-    raise GitError(f"push failed after {PUSH_TRIES} tries in {repo}")
+        committed = False
+        if paths:
+            _git(repo, "add", "-A", "--", *paths)
+            if _git(repo, "diff", "--cached", "--name-only", "--", *paths).stdout.strip():
+                _git(repo, "commit", "-q", "-m", message, "--", *paths)
+                committed = True
+        if has_remote(repo) and not (pull(repo) and _push(repo)):
+            print(f"gitsync: {repo} not synced; the commit stays local until the next sync", flush=True)
+        return committed

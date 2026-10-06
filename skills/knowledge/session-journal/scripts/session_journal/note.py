@@ -42,6 +42,11 @@ def under_roots(cwd: str, roots: Iterable[Path]) -> bool:
     return False
 
 
+def eligible(t: Transcript, roots: Iterable[Path]) -> bool:
+    """Gate 1: every folder the session worked in is under a brand-safe root."""
+    return bool(t.cwds) and all(under_roots(c, roots) for c in t.cwds)
+
+
 def project_name(cwd: str) -> str:
     """Git top-level folder name when it still exists, else the last folder of cwd."""
     if not cwd:
@@ -60,8 +65,12 @@ def rel_path(t: Transcript) -> str:
     return f"sessions/{yyyy}/{mm}/{date}-{t.agent}-{short}.md"
 
 
+def _one_line(value) -> str:
+    return " ".join(redact(str(value)).split())
+
+
 def _bullets(items: List[str]) -> str:
-    lines = [f"- {redact(str(i)).strip()}" for i in items if str(i).strip()]
+    lines = [f"- {_one_line(i)}" for i in items if str(i).strip()]
     return "\n".join(lines) or "- (none)"
 
 
@@ -70,7 +79,7 @@ def render(t: Transcript, data: dict, eligible: bool) -> str:
     tags = [re.sub(r"[^\w\-/]", "-", str(x).lower()).strip("-") for x in data.get("tags", [])][:6]
     meta = {
         "type": "session",
-        "title": redact(str(data.get("title", "Untitled session")))[:120],
+        "title": _one_line(data.get("title") or "Untitled session")[:120],
         "date": t.date,
         "agent": t.agent,
         "session_id": t.session_id,
@@ -84,18 +93,21 @@ def render(t: Transcript, data: dict, eligible: bool) -> str:
     body = [f"# {meta['title']}", "", "## Done", _bullets(data.get("done", [])), "",
             "## Lessons", _bullets(data.get("lessons", []))]
     if brand_safe:
-        body += ["", "## Post angle", redact(str(data["post_angle"]).strip())]
+        body += ["", "## Post angle", _one_line(data["post_angle"])]
     return f"---\n{head}\n---\n" + "\n".join(body) + "\n"
 
 
 def _scalar(value: str):
+    """true/false, JSON strings and lists; anything else (numbers too) stays a plain string."""
     value = value.strip()
     if value.lower() in ("true", "false"):
         return value.lower() == "true"
-    try:
-        return json.loads(value)
-    except ValueError:
-        return value.strip("'\"")
+    if value[:1] in ('"', "["):
+        try:
+            return json.loads(value)
+        except ValueError:
+            pass
+    return value.strip("'\"")
 
 
 def split(text: str) -> Tuple[dict, str]:
@@ -103,6 +115,9 @@ def split(text: str) -> Tuple[dict, str]:
     if not text.startswith("---\n"):
         return {}, text
     end = text.find("\n---\n", 4)
+    if end < 0 and text.rstrip().endswith("\n---"):
+        end = len(text.rstrip()) - 4
+        text = text.rstrip() + "\n"
     if end < 0:
         return {}, text
     meta: dict = {}

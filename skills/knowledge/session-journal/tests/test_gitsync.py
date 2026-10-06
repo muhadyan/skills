@@ -40,6 +40,13 @@ class GitSyncTest(TempDirCase, unittest.TestCase):
         self.assertIn("remote.md", files)
         self.assertIn("local.md", files)
 
+    def test_unreachable_remote_keeps_local_commit(self):
+        bare, clone = make_repo(self.tmp, "repo")
+        git(clone, "remote", "set-url", "origin", str(self.tmp / "gone.git"))
+        self.assertTrue(gitsync.sync_write(clone, {"a.md": "x\n"}, "offline", self.cfg.state_dir))
+        self.assertIn("offline", git(clone, "log", "--oneline", "-1"))
+        self.assertFalse((clone / ".git" / "rebase-merge").exists())
+
     def test_refuses_paths_outside_repo(self):
         _, clone = make_repo(self.tmp, "repo")
         with self.assertRaises(ValueError):
