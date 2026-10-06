@@ -13,6 +13,10 @@ _TOKENS = re.compile("|".join([
     r"\bAIza[0-9A-Za-z_-]{35}", r"\bglpat-[A-Za-z0-9_-]{20,}",
     r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
 ]))
+_PEM = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----", re.S)
+_QUOTED = re.compile(
+    r"(?i)(\b[A-Za-z0-9_.-]*(?:password|passwd|secret|token|api[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*"
+    r"[\"']?\s*[=:]\s*)([\"'])([^\"'\n]{8,})(\2)")
 _BEARER = re.compile(r"(?i)(\bbearer\s+)([A-Za-z0-9._~+/=-]{16,})")
 _URL_CRED = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s:/@]+:)([^\s@/]+)(@)")
 _KEY_VALUE = re.compile(
@@ -31,9 +35,14 @@ class Hit:
 
 
 def _placeholder(value: str) -> bool:
-    return (value.startswith(("$", "%", "{", "<", "[", "/", "~", ".", ":", "*"))
-            or "://" in value or "(" in value or _ENV_NAME.match(value) is not None
-            or _WORDS.match(value) is not None or len(set(value)) <= 2)
+    if value.startswith(("$", "%", "{", "<", "[", "/", "~", ".", ":", "*")) or "://" in value or "(" in value:
+        return True
+    if len(set(value)) <= 2:
+        return True
+    if "." in value and _WORDS.match(value):  # a dotted code path such as window.location.href
+        return True
+    # words and env-var names; a long one may be a letters-only key, so it is not exempt
+    return len(value) < 16 and (_ENV_NAME.match(value) is not None or _WORDS.match(value) is not None)
 
 
 def _looks_secret(value: str) -> bool:
@@ -59,7 +68,9 @@ def scrub(text: str, literals: Iterable[str] = ()) -> Tuple[str, List[Hit]]:
     found: List[Tuple[int, str]] = []
     for literal in sorted({l for l in literals if l}, key=len, reverse=True):
         text = _sub(re.compile(re.escape(literal)), 0, "literal", text, found)
+    text = _sub(_PEM, 0, "private-key", text, found)
     text = _sub(_TOKENS, 0, "token", text, found)
+    text = _sub(_QUOTED, 3, "quoted-value", text, found, check=lambda v: not v.startswith(("$", "%", "{", "<")) and len(set(v)) > 2)
     text = _sub(_BEARER, 2, "bearer", text, found)
     text = _sub(_URL_CRED, 2, "url-password", text, found, check=lambda v: not _placeholder(v))
     text = _sub(_KEY_VALUE, 2, "key-value", text, found, check=_looks_secret)

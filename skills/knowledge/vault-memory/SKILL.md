@@ -30,8 +30,8 @@ Scripts live in `${CLAUDE_SKILL_DIR}/scripts` (outside Claude Code: the `scripts
 - **SessionEnd hook** (`M hook end`): starts a detached `M commit` and returns at once.
 - **commit**: under session-journal's flock for the same repo
   (`<LOCK_DIR>/repo-<sha1(resolved vault path)[:12]>.lock`), commits every change under `memory/` and nothing
-  else, then `pull --rebase --autostash` and push. On a failed rebase it aborts and keeps the commit local
-  until the next sync.
+  else, then `pull --rebase` and push. It never stashes: while any tracked file outside the commit is dirty
+  (the user editing in Obsidian), or a rebase is in progress, the commit waits locally for the next sync.
 - Hooks do nothing for subagents (`agent_id` in the payload) or child processes (`VAULT_MEMORY` or
   `SESSION_JOURNAL` set). A hook never fails the session; errors go to `<STATE_DIR>/memory.log`.
 
@@ -64,7 +64,7 @@ What the agent saves, and how, lives in the user's `AGENTS.md` Memory section. T
    `~/.codex/memories/MEMORY.md`, finds each Claude project's real cwd from its transcripts (the folder slug
    is lossy), sends `kind: user` to `_global`, turns a `MEMORY.md` with real content into `project-notes`,
    and splits Codex task groups into one note each.
-2. Read the report: every redaction (secret values are replaced, words around them kept), every collision,
+2. Read the report; this review, not the patterns, is the safeguard. It lists every redaction (secret values are replaced, words around them kept), every collision,
    every unresolved folder. Search the output for secrets that no pattern can spot (a bare password in
    prose) and list them, one per line, in a file outside the repo. Rerun with `--also-redact FILE` until a
    scan (`gitleaks dir <scratch>/memory`) and the literal list find nothing.

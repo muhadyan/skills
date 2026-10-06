@@ -65,6 +65,21 @@ class ClaudeMigrateTest(TempDirCase, unittest.TestCase):
                     literals=("hunter42",))
         self.assertNotIn("hunter42", (self.vault / "memory" / "be-mic-project" / "pg.md").read_text())
 
+    def test_rerun_keeps_edited_notes(self):
+        self.run_migrate()
+        arch = self.vault / "memory" / "be-mic-project" / "arch.md"
+        arch.write_text("edited by an agent\n")
+        report = self.run_migrate()
+        self.assertEqual(arch.read_text(), "edited by an agent\n")
+        self.assertEqual(report.written, 0)
+        self.assertEqual(report.unchanged, 2)
+        self.assertEqual(report.skipped_existing, ["memory/be-mic-project/arch.md"])
+
+    def test_checkbox_line_is_real_content(self):
+        write(self.slug_dir / "memory" / "MEMORY.md", "# Memory\n- [ ] migrate the db\n- [Arch](arch.md) — x\n")
+        self.run_migrate()
+        self.assertTrue((self.vault / "memory" / "be-mic-project" / "project-notes.md").exists())
+
     def test_dry_run_writes_nothing(self):
         report = self.run_migrate(apply=False)
         self.assertFalse((self.vault / "memory").exists())
@@ -136,6 +151,10 @@ scope: Env vars in Sheets.
 applies_to: cwd=/X/Documents/Codex/2026-07-28/if with BE cwd=be; reuse_rule=x
 
 Body two.
+
+# Notes about this file
+
+Not part of any group.
 """
 
 
@@ -157,6 +176,8 @@ class CodexMigrateTest(TempDirCase, unittest.TestCase):
         self.assertTrue((self.vault / "memory" / "if" /
                          "codex-google-sheets-environment-variable-setup.md").exists())
         self.assertEqual(report.written, 2)
+        two = (self.vault / "memory" / "if" / "codex-google-sheets-environment-variable-setup.md").read_text()
+        self.assertNotIn("Not part of any group", two)
 
 
 if __name__ == "__main__":

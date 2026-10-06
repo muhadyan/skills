@@ -1,5 +1,7 @@
 import unittest
 
+import helpers  # noqa: F401  (puts scripts/ on sys.path)
+
 from vault_memory import scrub
 
 M = scrub.MARKER
@@ -30,6 +32,12 @@ class ScrubTest(unittest.TestCase):
         self.check("raw_password=73c5k8xq shown in admin", f"raw_password={M} shown in admin")
         self.check('--data-urlencode "access_token=1042817736EAAB"', f'--data-urlencode "access_token={M}"')
 
+    def test_quoted_passphrase_pem_and_long_letters(self):
+        self.check('password: "my secret pass phrase"', f'password: "{M}"')
+        self.check("api_key=ABCDEFGHIJKLMNOPQRST", f"api_key={M}")
+        pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\n-----END RSA PRIVATE KEY-----"
+        self.check(f"key:\n{pem}\nend", f"key:\n{M}\nend")
+
     def test_literals(self):
         out, hits = scrub.scrub("Local Postgres (`postgres`/`hunter42`) and `hunter42`, again", ("hunter42",))
         self.assertEqual(out, f"Local Postgres (`postgres`/`{M}`) and `{M}`, again")
@@ -58,6 +66,7 @@ class ScrubTest(unittest.TestCase):
             "forces `password=bcrypt(random)`",
             "password = **copied** from the verifier",
             "Access token is **in-memory** only",
+            "refresh token is `window.location.pathname`",
         ):
             out, hits = scrub.scrub(text)
             self.assertEqual(out, text, text)

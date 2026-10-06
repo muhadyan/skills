@@ -17,6 +17,17 @@ class FrontmatterTest(unittest.TestCase):
     def test_split_without_frontmatter(self):
         self.assertEqual(notes.split("just text\n"), ({}, "just text\n"))
 
+    def test_crlf(self):
+        meta, body = notes.split("---\r\ntype: memory\r\nkind: user\r\n---\r\n\r\nBody\r\n")
+        self.assertEqual(meta, {"type": "memory", "kind": "user"})
+        self.assertEqual(body, "Body\n")
+
+    def test_render_quotes_yaml_ambiguous_scalars(self):
+        for value in ("yes", "No", "null", "~", "true", "off", "42", "3.5"):
+            text = notes.render({"description": value}, "")
+            self.assertIn(f'description: "{value}"', text)
+            self.assertEqual(notes.split(text)[0]["description"], value)
+
     def test_render_roundtrip(self):
         meta = {"type": "memory", "kind": "user", "description": 'a: "b"', "project": "_global",
                 "updated": "2026-10-07"}
@@ -65,6 +76,11 @@ class IndexTest(TempDirCase, unittest.TestCase):
         self._note("app", "real")
         self.assertEqual(notes.index_lines(self.vault, "app")[-1], "- [[real]] (project) d")
         self.assertNotIn("scratch", "\n".join(notes.index_lines(self.vault, "app")))
+
+    def test_non_string_description(self):
+        write(self.vault / "memory" / "app" / "odd.md",
+              "---\ntype: memory\nkind: project\ndescription: >\n  a: b\nupdated: 2026-10-01\n---\n\nx\n")
+        self.assertEqual(notes.index_lines(self.vault, "app")[-1], "- [[odd]] (project) ")
 
     def test_missing_folders(self):
         self.assertEqual(notes.index_lines(self.vault, "app"), [])

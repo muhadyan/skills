@@ -20,6 +20,9 @@ from vault_memory import config, gitsync, hooks, migrate  # noqa: E402
 
 def _print_report(r: migrate.Report, apply: bool) -> None:
     print(f"migrate: {r.written} notes {'written' if apply else 'would be written (dry run)'}")
+    print(f"unchanged: {r.unchanged}; existing and different, skipped ({len(r.skipped_existing)}):")
+    for d in r.skipped_existing:
+        print(f"  {d}")
     print(f"unresolved project folders ({len(r.unresolved)}): {', '.join(r.unresolved) or '-'}")
     print(f"collisions ({len(r.collisions)}):")
     for c in r.collisions:
@@ -35,7 +38,6 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     h = sub.add_parser("hook")
     h.add_argument("event", choices=["start", "end"])
-    h.add_argument("--agent", default="", help="accepted for symmetry with other hooks; unused")
     c = sub.add_parser("context")
     c.add_argument("cwd", nargs="?", default=os.getcwd())
     sub.add_parser("commit")

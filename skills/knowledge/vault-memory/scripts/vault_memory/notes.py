@@ -12,7 +12,9 @@ KINDS = ("user", "feedback", "project", "reference")
 MAX_LINES = 200
 MAX_BYTES = 25_000
 MAX_DESC = 200
+HEAD_BYTES = 8192  # frontmatter sits at the top; the index never reads whole notes
 _PLAIN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_ ./+-]*$")
+_AMBIGUOUS = re.compile(r"^(?:true|false|yes|no|y|n|on|off|null|~|[-+]?[0-9][0-9_.eE+-]*)$", re.I)
 
 
 def _value(raw: str):
@@ -29,6 +31,7 @@ def _value(raw: str):
 
 def split(text: str) -> Tuple[dict, str]:
     """(frontmatter dict, body). Reads flat keys, one level of nested keys, and block lists."""
+    text = text.replace("\r\n", "\n")
     if not text.startswith("---\n"):
         return {}, text
     end = text.find("\n---\n", 3)
@@ -56,7 +59,8 @@ def split(text: str) -> Tuple[dict, str]:
 
 def _render_value(value) -> str:
     text = str(value)
-    return text if _PLAIN.match(text) and text == text.strip() else json.dumps(text, ensure_ascii=False)
+    plain = _PLAIN.match(text) and not _AMBIGUOUS.match(text) and text == text.strip()
+    return text if plain else json.dumps(text, ensure_ascii=False)
 
 
 def render(meta: dict, body: str) -> str:
@@ -86,7 +90,8 @@ def load_folder(vault: Path, project: str) -> List[Tuple[str, dict]]:
     folder = vault / MEMORY_DIR / project
     found = []
     for path in sorted(folder.glob("*.md")) if folder.is_dir() else []:
-        meta, _ = split(path.read_text(encoding="utf-8", errors="replace"))
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            meta, _ = split(fh.read(HEAD_BYTES))
         if meta.get("type") == "memory":
             found.append((path.stem, meta))
     return sorted(found, key=lambda nm: (str(nm[1].get("updated", "")), nm[0]), reverse=True)
@@ -95,13 +100,17 @@ def load_folder(vault: Path, project: str) -> List[Tuple[str, dict]]:
 def index_lines(vault: Path, project: str) -> List[str]:
     folders = [GLOBAL] + ([project] if project and project != GLOBAL else [])
     lines: List[str] = []
+    def desc(meta: dict) -> str:
+        value = meta.get("description", "")
+        return one_line(value) if isinstance(value, str) else ""
+
     for folder in folders:
         found = load_folder(vault, folder)
         if not found:
             continue
         title = "Global" if folder == GLOBAL else f"Project {folder}"
         lines.append(f"{title} ({MEMORY_DIR}/{folder}/):")
-        lines += [f"- [[{name}]] ({meta.get('kind', 'project')}) {one_line(meta.get('description', ''))}"
+        lines += [f"- [[{name}]] ({meta.get('kind', 'project')}) {desc(meta)}"
                   for name, meta in found]
     return lines
 

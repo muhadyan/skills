@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Tuple
 from . import notes, scrub
 
 SLUG_CHARS = re.compile(r"[^A-Za-z0-9]")
-POINTER = re.compile(r"^\s*[-*]\s*\[\[?[^\]]+\]\]?(\([^)]*\))?")
+POINTER = re.compile(r"^\s*[-*]\s*(?:\[[^\]]+\]\(|\[\[)")
 MAX_TRANSCRIPT_LINES = 200
 
 
@@ -40,6 +40,8 @@ class Redaction:
 @dataclass
 class Report:
     written: int = 0
+    unchanged: int = 0
+    skipped_existing: List[str] = field(default_factory=list)
     redactions: List[Redaction] = field(default_factory=list)
     collisions: List[str] = field(default_factory=list)
     unresolved: List[str] = field(default_factory=list)
@@ -143,11 +145,13 @@ def codex_items(memories: Path, literals: Tuple[str, ...] = ()) -> List[Item]:
     if not path.exists():
         return []
     items = []
-    parts = re.split(r"(?m)^# Task Group: ", path.read_text(encoding="utf-8", errors="replace"))
+    parts = re.split(r"(?m)^# ", path.read_text(encoding="utf-8", errors="replace"))
     for part in parts[1:]:
-        title, _, body = part.partition("\n")
+        if not part.startswith("Task Group: "):
+            continue
+        title, _, body = part[len("Task Group: "):].partition("\n")
         scope = re.search(r"(?m)^scope:\s*(.+)$", body)
-        cwd = re.search(r"(?m)^applies_to:\s*cwd=([^;\s]+)", body)
+        cwd = re.search(r"(?m)^applies_to:\s*cwd=(.+?)(?:;| with |$)", body)
         project = notes.project_name(cwd.group(1)) if cwd else notes.GLOBAL
         name = "codex-" + _slug(title.strip().lower()).strip("-")
         name = re.sub("-+", "-", name)[:80].rstrip("-")
@@ -195,10 +199,17 @@ def run(vault: Path, claude_projects: Optional[Path], codex_memories: Optional[P
     for item in resolve_collisions(items, report):
         if item.hits:
             report.redactions.append(Redaction(item.dest, item.source, item.hits))
+        target, text = vault / item.dest, notes.render(item.meta, item.body)
+        if target.exists():  # never replace a note that is already there (it may have been edited)
+            if target.read_text(encoding="utf-8", errors="replace") == text:
+                report.unchanged += 1
+            else:
+                report.skipped_existing.append(item.dest)
+            continue
         if apply:
-            target = vault / item.dest
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(notes.render(item.meta, item.body), encoding="utf-8")
+            target.write_text(text, encoding="utf-8")
         report.written += 1
     report.redactions.sort(key=lambda r: r.dest)
+    report.skipped_existing.sort()
     return report
