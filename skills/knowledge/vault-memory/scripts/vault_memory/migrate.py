@@ -117,10 +117,10 @@ def claude_items(projects: Path, report: Report, literals: Tuple[str, ...] = ())
     for mem in sorted(projects.glob("*/memory")):
         cwd = resolve_cwd(mem.parent)
         if cwd:
-            project = notes.project_name(cwd)
+            project = notes.folder(notes.project_name(cwd))
         else:
             report.unresolved.append(mem.parent.name)
-            project = mem.parent.name.rsplit("-", 1)[-1] or "unknown"
+            project = notes.folder(mem.parent.name.rsplit("-", 1)[-1])
         for path in sorted(mem.glob("*.md")):
             text = path.read_text(encoding="utf-8", errors="replace")
             if path.name == "MEMORY.md":
@@ -152,7 +152,7 @@ def codex_items(memories: Path, literals: Tuple[str, ...] = ()) -> List[Item]:
         title, _, body = part[len("Task Group: "):].partition("\n")
         scope = re.search(r"(?m)^scope:\s*(.+)$", body)
         cwd = re.search(r"(?m)^applies_to:\s*cwd=(.+?)(?:;| with |$)", body)
-        project = notes.project_name(cwd.group(1)) if cwd else notes.GLOBAL
+        project = notes.folder(notes.project_name(cwd.group(1))) if cwd else notes.GLOBAL
         name = "codex-" + _slug(title.strip().lower()).strip("-")
         name = re.sub("-+", "-", name)[:80].rstrip("-")
         items.append(_item(project, name, "project", scope.group(1) if scope else title, body.strip(),

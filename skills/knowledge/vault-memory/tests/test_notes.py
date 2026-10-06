@@ -48,6 +48,11 @@ class ProjectNameTest(TempDirCase, unittest.TestCase):
         d.mkdir(parents=True)
         self.assertEqual(notes.project_name(str(d)), "adyan-personal")
 
+    def test_folder_rejects_dot_names(self):
+        for bad in ("", ".", ".."):
+            self.assertEqual(notes.folder(bad), notes.GLOBAL)
+        self.assertEqual(notes.folder("app"), "app")
+
     def test_empty(self):
         self.assertEqual(notes.project_name(""), "")
 

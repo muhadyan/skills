@@ -32,10 +32,14 @@ Scripts live in `${CLAUDE_SKILL_DIR}/scripts` (outside Claude Code: the `scripts
   (`<LOCK_DIR>/repo-<sha1(resolved vault path)[:12]>.lock`), commits every change under `memory/` and nothing
   else, then `pull --rebase` and push. It never stashes: while any tracked file outside the commit is dirty
   (the user editing in Obsidian), or a rebase is in progress, the commit waits locally for the next sync.
+  Before committing it strips token-shaped secrets (known token formats, key blocks, URL credentials) from
+  the changed notes.
 - Hooks do nothing for subagents (`agent_id` in the payload) or child processes (`VAULT_MEMORY` or
   `SESSION_JOURNAL` set). A hook never fails the session; errors go to `<STATE_DIR>/memory.log`.
 
 What the agent saves, and how, lives in the user's `AGENTS.md` Memory section. This skill does not repeat it.
+Index descriptions enter every session's context, so anyone who can push to the vault can steer agents; keep
+the vault remote private.
 
 ## Setup
 

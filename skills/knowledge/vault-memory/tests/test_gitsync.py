@@ -79,6 +79,39 @@ class CommitTest(TempDirCase, unittest.TestCase):
         self.assertEqual(gitsync.commit_memory(clone, self.cfg.lock_dir), 0)
         self.assertTrue((clone / ".git" / "rebase-merge").exists())
 
+    def test_scrubs_new_notes_before_commit(self):
+        bare, clone = make_repo(self.tmp, "vault")
+        note = clone / "memory" / "app" / "a.md"
+        write(note, "token ghp_abcdefghijklmnopqrstuvwxyz0123456789\n")
+        self.assertEqual(gitsync.commit_memory(clone, self.cfg.lock_dir), 1)
+        self.assertNotIn("ghp_", note.read_text())
+        self.assertNotIn("ghp_", git(bare, "show", "main:memory/app/a.md"))
+
+    def test_timeout_during_pull_aborts_rebase(self):
+        from unittest import mock
+        import subprocess
+        bare, clone = make_repo(self.tmp, "vault")
+        write(clone / "memory" / "app" / "a.md", "a\n")
+        real = subprocess.run
+
+        def fake(cmd, *a, **kw):
+            if cmd[:2] == ["git", "pull"]:
+                (clone / ".git" / "rebase-merge").mkdir(exist_ok=True)
+                raise subprocess.TimeoutExpired(cmd, 120)
+            if cmd[:3] == ["git", "rebase", "--abort"]:
+                (clone / ".git" / "rebase-merge").rmdir()
+            return real(cmd, *a, **kw)
+        with mock.patch.object(gitsync.subprocess, "run", side_effect=fake):
+            gitsync.commit_memory(clone, self.cfg.lock_dir)
+        self.assertFalse((clone / ".git" / "rebase-merge").exists())
+
+    def test_lock_wait_has_a_deadline(self):
+        _, clone = make_repo(self.tmp, "vault")
+        with gitsync.repo_lock(clone, self.cfg.lock_dir):
+            with self.assertRaises(gitsync.GitError):
+                with gitsync.repo_lock(clone, self.cfg.lock_dir, wait=0.3):
+                    pass
+
     def test_retries_index_lock(self):
         _, clone = make_repo(self.tmp, "vault")
         write(clone / "memory" / "app" / "a.md", "a\n")

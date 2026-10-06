@@ -38,6 +38,32 @@ class ScrubTest(unittest.TestCase):
         pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEabc\n-----END RSA PRIVATE KEY-----"
         self.check(f"key:\n{pem}\nend", f"key:\n{M}\nend")
 
+    def test_more_shapes(self):
+        cases = {
+            "STRIPE=sk_live_51Habcdefghijklmnop": f"STRIPE={M}",
+            "bot 123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-Ex ok": f"bot {M} ok",
+            "meta EAABwzLixnjYBOZCZBabcdefghij12345 x": f"meta {M} x",
+            "client GOCSPX-abcdefghijklmnopqrstuvwxyz12 x": f"client {M} x",
+            "hook https://hooks.slack.com/services/T000/B000/XXXXabcd1234 x": f"hook {M} x",
+            "hook https://discord.com/api/webhooks/123456/abcDEF_ghi-123 x": f"hook {M} x",
+            "hash $2a$12$WY47abcdefghijklmnopqOabcdefghijklmnopqrstuvwxyz12345 x": f"hash {M} x",
+            "Authorization: Basic dXNlcjpwYXNzd29yZA== x": f"Authorization: Basic {M} x",
+            "Cookie: sessionid=abc123def456ghi x": f"Cookie: sessionid={M} x",
+            "Prod DB user app pw Wat3rIQ2024 here": f"Prod DB user app pw {M} here",
+            "password: hunter2": f"password: {M}",
+            "password: Correct-Horse": f"password: {M}",
+            "password=Summer.Winter.Autumn": f"password={M}",
+            "postgres://u:pa@ss@db.example.com/x": f"postgres://u:{M}@db.example.com/x",
+        }
+        for text, expected in cases.items():
+            self.assertEqual(scrub.scrub(text)[0], expected, text)
+
+    def test_high_confidence_only(self):
+        out, hits = scrub.scrub("password: hunter2 and ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+                                high_confidence_only=True)
+        self.assertEqual(out, f"password: hunter2 and {M}")
+        self.assertEqual(len(hits), 1)
+
     def test_literals(self):
         out, hits = scrub.scrub("Local Postgres (`postgres`/`hunter42`) and `hunter42`, again", ("hunter42",))
         self.assertEqual(out, f"Local Postgres (`postgres`/`{M}`) and `{M}`, again")
@@ -67,6 +93,10 @@ class ScrubTest(unittest.TestCase):
             "password = **copied** from the verifier",
             "Access token is **in-memory** only",
             "refresh token is `window.location.pathname`",
+            "originSessionId: 0337abcd-1234-4cde-9f00-123456789abc",
+            "Sakura webmail without any password: 会員メニュー",
+            "Verify with `password_hash = (SELECT password_hash FROM users)`",
+            "notification_tokens.id is 32-byte hex",
         ):
             out, hits = scrub.scrub(text)
             self.assertEqual(out, text, text)

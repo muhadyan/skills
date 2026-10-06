@@ -12,10 +12,13 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator, List
 
+from . import scrub
 from .notes import MEMORY_DIR
 
 PUSH_TRIES = 3
 LOCK_TRIES = 5
+GIT_TIMEOUT = 120
+LOCK_WAIT = 600  # seconds; a hung holder must not leave one waiting child per session forever
 
 
 class GitError(Exception):
@@ -24,7 +27,10 @@ class GitError(Exception):
 
 def _git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess:
     for attempt in range(LOCK_TRIES):
-        proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=120)
+        try:
+            proc = subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, timeout=GIT_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc = subprocess.CompletedProcess(["git", *args], 124, "", f"timed out after {GIT_TIMEOUT}s")
         if proc.returncode == 0 or "index.lock" not in proc.stderr:
             break
         time.sleep(0.5 + attempt)  # obsidian-git or the user holds the index for a moment
@@ -40,10 +46,18 @@ def lock_path(repo: Path, lock_dir: Path) -> Path:
 
 
 @contextmanager
-def repo_lock(repo: Path, lock_dir: Path) -> Iterator[None]:
+def repo_lock(repo: Path, lock_dir: Path, wait: float = LOCK_WAIT) -> Iterator[None]:
     lock_dir.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + wait
     with open(lock_path(repo, lock_dir), "w") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
+        while True:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() > deadline:
+                    raise GitError(f"vault lock still held after {wait:.0f}s; skipping this sync")
+                time.sleep(0.2)
         try:
             yield
         finally:
@@ -57,6 +71,20 @@ def _git_dir(repo: Path) -> Path:
 def _rebasing(repo: Path) -> bool:
     gd = _git_dir(repo)
     return (gd / "rebase-merge").exists() or (gd / "rebase-apply").exists()
+
+
+def _scrub_staged(repo: Path, names: List[str]) -> None:
+    """Strip token-shaped secrets from notes an agent wrote, before they reach the remote."""
+    for name in names:
+        path = repo / name
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        clean, hits = scrub.scrub(text, high_confidence_only=True)
+        if hits:
+            path.write_text(clean, encoding="utf-8")
+            _git(repo, "add", "--", name)
+            print(f"scrub: removed {len(hits)} secret(s) from {name}", flush=True)
 
 
 def _changed(repo: Path) -> List[str]:
@@ -99,6 +127,7 @@ def commit_memory(repo: Path, lock_dir: Path) -> int:
             return 0
         if (repo / MEMORY_DIR).exists() or _git(repo, "ls-files", "--", MEMORY_DIR).stdout.strip():
             _git(repo, "add", "-A", "--", MEMORY_DIR)
+        _scrub_staged(repo, _changed(repo))
         changed = _changed(repo)
         if changed:
             noun = "file" if len(changed) == 1 else "files"

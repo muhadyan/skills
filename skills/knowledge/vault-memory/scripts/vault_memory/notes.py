@@ -80,6 +80,11 @@ def project_name(cwd: str) -> str:
     return path.name
 
 
+def folder(project: str) -> str:
+    """The memory/ subfolder for a project; names that would leave memory/ fall back to _global."""
+    return project if project not in ("", ".", "..") and "/" not in project and "\\" not in project else GLOBAL
+
+
 def one_line(text: str, limit: int = MAX_DESC) -> str:
     text = " ".join(str(text).split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
