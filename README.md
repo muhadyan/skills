@@ -42,6 +42,10 @@ Pick the skills you want and which agents to install them on. Pull later changes
 
 - **[before-after-video](./skills/engineering/before-after-video/SKILL.md)**: Record before/after MP4 videos of a UI change (visible mouse pointer, click rings, key-press box, captions) plus a side-by-side version, with Playwright + ffmpeg. Saves files by default; posts to a GitHub PR/issue (`gh --attach`) or a ClickUp comment when you ask. Needs `uv`, `ffmpeg` and Google Chrome.
 
+### Knowledge
+
+- **[session-journal](./skills/knowledge/session-journal/SKILL.md)**: Log every Claude Code and Codex session to an Obsidian vault (work done + lessons) through SessionStart/SessionEnd hooks, feed past lessons back at session start, and export brand-safe notes (path gate + NDA denylist) as a knowledge base for a content bot. Stdlib Python, needs the `claude` CLI and `git`.
+
 ## License
 
 [MIT](./LICENSE)
