@@ -66,6 +66,14 @@ class CommitTest(TempDirCase, unittest.TestCase):
         self.assertEqual(gitsync.commit_memory(clone, self.cfg.lock_dir), 0)
         self.assertIn("memory/app/a.md", git(bare, "ls-tree", "-r", "--name-only", "main"))
 
+    def test_dirty_tree_still_pushes_when_remote_has_not_moved(self):
+        bare, clone = make_repo(self.tmp, "vault")
+        write(clone / "README.md", "Obsidian rewrote its settings\n")
+        write(clone / "memory" / "app" / "a.md", "a\n")
+        self.assertEqual(gitsync.commit_memory(clone, self.cfg.lock_dir), 1)
+        self.assertIn("memory/app/a.md", git(bare, "ls-tree", "-r", "--name-only", "main"))
+        self.assertEqual((clone / "README.md").read_text(), "Obsidian rewrote its settings\n")
+
     def test_counts_names_with_spaces(self):
         bare, clone = make_repo(self.tmp, "vault")
         write(clone / "memory" / "app" / "my note é.md", "a\n")

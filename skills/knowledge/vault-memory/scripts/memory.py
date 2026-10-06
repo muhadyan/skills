@@ -63,7 +63,8 @@ def main(argv=None) -> int:
     if args.cmd == "context":
         print(hooks.context(cfg, args.cwd))
     elif args.cmd == "commit":
-        print(f"commit: {gitsync.commit_memory(cfg.vault, cfg.lock_dir)} files", flush=True)
+        n = gitsync.commit_memory(cfg.vault, cfg.lock_dir)
+        print(f"commit: {n} file{'' if n == 1 else 's'}", flush=True)
     return 0
 
 
