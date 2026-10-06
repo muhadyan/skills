@@ -94,6 +94,8 @@ class TempDirCase:
             export_repo=None, export_dir="knowledge", export_rules="rules.json", branch="main",
             state_dir=self.tmp / "state", min_prompts=2, idle_hours=2.0,
             claude_projects=self.tmp / "claude-projects", codex_sessions=self.tmp / "codex-sessions",
+            claude_settings=self.tmp / "no-settings.json", codex_hooks=self.tmp / "no-hooks.json",
+            codex_config=self.tmp / "no-config.toml",
         )
         os.environ.pop("SESSION_JOURNAL", None)
 

@@ -31,6 +31,9 @@ class Config:
     idle_hours: float
     claude_projects: Path
     codex_sessions: Path
+    claude_settings: Path
+    codex_hooks: Path
+    codex_config: Path
 
 
 def _read_env_file(path: Path) -> dict:
@@ -73,4 +76,7 @@ def load(path: Optional[Path] = None) -> Config:
         idle_hours=float(v.get("IDLE_HOURS", "2")),
         claude_projects=_path(v.get("CLAUDE_PROJECTS", "~/.claude/projects")),
         codex_sessions=_path(v.get("CODEX_SESSIONS", "~/.codex/sessions")),
+        claude_settings=_path(v.get("CLAUDE_SETTINGS", "~/.claude/settings.json")),
+        codex_hooks=_path(v.get("CODEX_HOOKS", "~/.codex/hooks.json")),
+        codex_config=_path(v.get("CODEX_CONFIG", "~/.codex/config.toml")),
     )

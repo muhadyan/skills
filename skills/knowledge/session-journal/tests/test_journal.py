@@ -65,6 +65,12 @@ class HookTest(TempDirCase, unittest.TestCase):
         self.assertIn(str(self.vault), ctx)
         self.assertEqual(spawn.call_args[0][1][0], "sweep")
 
+    def test_start_warns_when_notes_are_not_pushed(self):
+        with mock.patch.object(hooks.doctor, "sync_problem", return_value="2 unpushed note commit(s)"):
+            ctx = hooks.start_context(self.cfg, str(self.tmp))
+        self.assertIn("2 unpushed", ctx)
+        self.assertIn("journal.py doctor", ctx)
+
     def test_child_env_strips_claude_session_vars_but_keeps_auth(self):
         with mock.patch.dict(os.environ, {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli", "HOME": "/h",
                                           "CLAUDE_CODE_SESSION_ID": "s", "CLAUDE_CODE_OAUTH_TOKEN": "tok",

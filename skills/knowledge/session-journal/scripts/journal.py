@@ -6,6 +6,7 @@
   journal.py sweep [--days 30] [--max 5]           (--max 0 = no limit)
   journal.py export [--force]                     (--force allows deleting 5+ exported notes)
   journal.py context [CWD]
+  journal.py doctor                               (exit 1 when a check FAILs)
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from session_journal import config, export, hooks, summarize, sweep  # noqa: E402
+from session_journal import config, doctor, export, hooks, summarize, sweep  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -33,6 +34,7 @@ def main(argv=None) -> int:
     w.add_argument("--max", type=int, default=sweep.DEFAULT_MAX)
     e = sub.add_parser("export")
     e.add_argument("--force", action="store_true")
+    sub.add_parser("doctor")
     c = sub.add_parser("context")
     c.add_argument("cwd", nargs="?", default=os.getcwd())
     args = ap.parse_args(argv)
@@ -49,6 +51,8 @@ def main(argv=None) -> int:
         r = export.run(cfg, force=args.force)
         print("export: not configured" if r is None else
               f"export: {len(r.exported)} exported, {len(r.blocked)} blocked {r.blocked}, commit={r.committed}")
+    elif args.cmd == "doctor":
+        return doctor.run(cfg)
     elif args.cmd == "context":
         print(hooks.start_context(cfg, args.cwd))
     return 0

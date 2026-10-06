@@ -72,6 +72,13 @@ class GitSyncTest(TempDirCase, unittest.TestCase):
         self.assertEqual(git(clone, "stash", "list"), "")
         self.assertFalse((clone / ".git" / "rebase-merge").exists())
 
+    def test_dirty_tree_still_pushes_when_remote_has_not_moved(self):
+        bare, clone = make_repo(self.tmp, "repo", {"settings.json": "v1\n"})
+        (clone / "settings.json").write_text("Obsidian rewrote it\n")
+        self.assertTrue(gitsync.sync_write(clone, {"note.md": "n\n"}, "note", self.cfg.state_dir))
+        self.assertIn("note.md", git(bare, "ls-tree", "-r", "--name-only", "main"))
+        self.assertEqual((clone / "settings.json").read_text(), "Obsidian rewrote it\n")
+
     def test_never_touches_a_rebase_someone_else_started(self):
         _, clone = make_repo(self.tmp, "repo")
         (clone / ".git" / "rebase-merge").mkdir()
