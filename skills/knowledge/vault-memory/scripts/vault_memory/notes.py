@@ -73,7 +73,7 @@ def project_name(cwd: str) -> str:
     note.project_name, so sessions and memory share one `project` value."""
     if not cwd:
         return ""
-    path = Path(cwd)
+    path = Path(cwd).expanduser()
     for p in [path, *path.parents]:
         if (p / ".git").exists():
             return p.name
