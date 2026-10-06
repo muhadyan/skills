@@ -100,7 +100,9 @@ def _sync(repo: Path) -> None:
         print("sync: branch has no upstream; memory commit stays local", flush=True)
         return
     if _git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip():
-        print("sync: tracked files are being edited; memory commit waits for the next sync", flush=True)
+        # cannot rebase over the user's edits; a fast-forward push needs no rebase
+        if _git(repo, "push", "-q", check=False).returncode:
+            print("sync: tracked files are being edited and the remote moved; memory commit waits", flush=True)
         return
     if _git(repo, "pull", "-q", "--rebase", check=False).returncode:
         if _rebasing(repo):
