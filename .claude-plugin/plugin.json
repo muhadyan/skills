@@ -1,7 +1,7 @@
 {
   "name": "muhadyan-skills",
-  "version": "0.2.0",
-  "description": "Adyan's agent skills for everyday engineering: before/after demo videos and more.",
+  "version": "0.3.0",
+  "description": "Adyan's agent skills for everyday engineering: before/after demo videos, a session journal for Obsidian, and more.",
   "author": {
     "name": "M Adyan Rohutomo",
     "url": "https://github.com/muhadyan"
@@ -9,8 +9,18 @@
   "homepage": "https://github.com/muhadyan/skills",
   "repository": "https://github.com/muhadyan/skills",
   "license": "MIT",
-  "keywords": ["engineering", "skills", "video", "playwright", "demo"],
+  "keywords": [
+    "engineering",
+    "skills",
+    "video",
+    "playwright",
+    "demo",
+    "obsidian",
+    "journal",
+    "hooks"
+  ],
   "skills": [
-    "./skills/engineering/before-after-video"
+    "./skills/engineering/before-after-video",
+    "./skills/knowledge/session-journal"
   ]
 }
