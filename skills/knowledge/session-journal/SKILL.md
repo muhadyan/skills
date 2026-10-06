@@ -28,22 +28,31 @@ Scripts live in `${CLAUDE_SKILL_DIR}/scripts` (outside Claude Code: the `scripts
    - Gate 2, denylist: title, tags and post angle are matched against `DENYLIST` plus the export repo's
      `nda*` regex rules in `rules.json`. A missing or empty denylist, a bad regex or a missing `sessions/`
      stops the export. Deleting 5+ exported notes at once needs `J export --force`.
+   - The post angle must also be under 500 characters with no links, handles, prices or numbers of 10+,
+     and title and angle must hold nothing the secret redactor would change.
    - Gate 3, downstream: the bot's own rules and reviewer.
+   Limit: gate 1 sees the folders the agent was started or moved in, not files it touched by absolute path;
+   the denylist covers that case.
    Export only touches files it generated (marked `generated: session-journal`).
 
 Every child process runs with `SESSION_JOURNAL=1`, so its own hooks do nothing (no recursion).
+Git writes happen only on `BRANCH`, never with autostash, and never during someone else's rebase: a note whose
+sync fails stays a local commit until the next sync. Other vault writers share the lock
+`$STATE_DIR/repo-<sha1(resolved repo path)[:12]>.lock`.
 Logs: `~/.local/state/session-journal/journal.log`. State: `processed.json` in the same folder.
 
 ## Setup
 
 1. Create `~/.config/session-journal/config.env`:
    ```
-   VAULT=~/path/to/vault                      # a git clone; required
+   # VAULT: a git clone on BRANCH (default main); required
+   VAULT=~/path/to/vault
    BRAND_SAFE_ROOTS=~/Developer/personal:~/Developer/skills
    MODEL=claude-sonnet-5-5
-   EXPORT_REPO=~/.local/share/session-journal/brand   # optional dedicated clone of the bot's content repo
+   # optional: a dedicated clone of the bot's content repo, used only by export
+   EXPORT_REPO=~/.local/share/session-journal/brand
    EXPORT_DIR=knowledge
-   # DENYLIST defaults to $VAULT/_meta/nda-denylist.txt (one regex per line)
+   # DENYLIST defaults to $VAULT/_meta/nda-denylist.txt (one regex per line; must exist and be non-empty)
    ```
    Done when `J context` prints the vault path.
 2. Add the hooks. Claude Code `~/.claude/settings.json` and Codex `~/.codex/hooks.json`, next to any existing ones:

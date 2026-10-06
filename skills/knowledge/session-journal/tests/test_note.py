@@ -61,6 +61,20 @@ class NoteTest(TempDirCase, unittest.TestCase):
         self.assertNotIn("hunter2xyz", md)
         self.assertIn("[REDACTED]", md)
 
+    def test_redacts_common_secret_shapes(self):
+        secrets = ["DB_PASSWORD=hunter2xyz", "TELEGRAM_BOT_TOKEN=abc123def", 'password: "two words"',
+                   "mysql://root:pw123@db.local/x", "redis://:pw123@cache:6379",
+                   "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123def456", "Authorization: Bearer abcdefghijklmnopqrstu",
+                   "sk_live_abcdefghijkl123456", "AIzaSyA1234567890abcdefghijklmnopqrstu"]
+        for secret in secrets:
+            self.assertIn("[REDACTED]", note.redact(f"x {secret} y"), secret)
+            self.assertNotIn("pw123", note.redact(secret))
+
+    def test_bad_date_never_reaches_the_path(self):
+        t = self.transcript(self.tmp / "personal" / "app")
+        t.date = "../../.git/x"
+        self.assertEqual(note.rel_path(t), "sessions/0000/00/0000-00-00-claude-abcdef12.md")
+
     def test_path_uses_date_agent_and_short_id(self):
         t = self.transcript(self.tmp / "personal" / "app")
         self.assertEqual(note.rel_path(t), "sessions/2026/10/2026-10-07-claude-abcdef12.md")

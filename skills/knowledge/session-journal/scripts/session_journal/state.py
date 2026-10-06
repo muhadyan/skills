@@ -6,9 +6,13 @@ cannot burn model calls forever.
 """
 from __future__ import annotations
 
+import fcntl
 import json
+import os
+import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Iterator
 
 from .config import Config
 
@@ -28,26 +32,39 @@ def load(cfg: Config) -> Dict[str, dict]:
     return {k: v for k, v in data.items() if isinstance(v, dict)} if isinstance(data, dict) else {}
 
 
+@contextmanager
+def _locked(cfg: Config) -> Iterator[None]:
+    """Hooks and sweeps update this file from different processes: read-modify-write under a lock."""
+    with open(_file(cfg).with_suffix(".lock"), "w") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 def _save(cfg: Config, data: Dict[str, dict]) -> None:
-    tmp = _file(cfg).with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=0), encoding="utf-8")
-    tmp.replace(_file(cfg))
+    fd, tmp = tempfile.mkstemp(dir=str(cfg.state_dir), prefix="processed.", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=0)
+    os.replace(tmp, _file(cfg))
 
 
-def _update(cfg: Config, path: Path, mtime: float, fails: int) -> None:
-    data = load(cfg)  # re-read: hooks and sweeps write this file from different processes
-    data[str(path)] = {"mtime": mtime, "fails": fails}
-    _save(cfg, data)
+def _update(cfg: Config, path: Path, mtime: float, failed: bool) -> None:
+    with _locked(cfg):
+        data = load(cfg)
+        entry = data.get(str(path), {})
+        fails = (entry.get("fails", 0) + 1 if entry.get("mtime") == mtime else 1) if failed else 0
+        data[str(path)] = {"mtime": mtime, "fails": fails}
+        _save(cfg, data)
 
 
 def mark_done(cfg: Config, path: Path, mtime: float) -> None:
-    _update(cfg, path, mtime, 0)
+    _update(cfg, path, mtime, failed=False)
 
 
 def mark_failed(cfg: Config, path: Path, mtime: float) -> None:
-    entry = load(cfg).get(str(path), {})
-    fails = entry.get("fails", 0) + 1 if entry.get("mtime") == mtime else 1
-    _update(cfg, path, mtime, fails)
+    _update(cfg, path, mtime, failed=True)
 
 
 def is_settled(entry: dict, mtime: float) -> bool:

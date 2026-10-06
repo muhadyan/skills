@@ -2,6 +2,9 @@
 
 The commit happens first so an offline Mac or a rebase conflict never loses a note:
 a failed sync aborts the rebase, keeps the local commit, and the next sync pushes it.
+There is no autostash: with the user's uncommitted edits in the tree the pull simply
+waits for the next sync, so their files are never stashed or merged.
+Writes happen only on the configured branch, never on a feature branch or a detached HEAD.
 Other tools (obsidian-git, a second vault writer) share the lock file path below.
 """
 from __future__ import annotations
@@ -12,7 +15,7 @@ import subprocess
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Dict, Iterable, Iterator
+from typing import Callable, Dict, Iterable, Iterator, Optional
 
 PUSH_TRIES = 3
 INDEX_LOCK_TRIES = 5
@@ -50,11 +53,20 @@ def has_remote(repo: Path) -> bool:
     return bool(_git(repo, "remote", check=False).stdout.strip())
 
 
+def _rebasing(repo: Path) -> bool:
+    git_dir = repo / ".git"
+    return (git_dir / "rebase-merge").exists() or (git_dir / "rebase-apply").exists()
+
+
 def pull(repo: Path) -> bool:
-    """pull --rebase; on failure abort the rebase so the repo is never left half-rebased."""
-    if _git(repo, "pull", "-q", "--rebase", "--autostash", check=False).returncode == 0:
+    """pull --rebase. Skipped while anyone else is mid-rebase; a rebase this pull started and
+    could not finish is aborted, so the repo is never left half-rebased."""
+    if _rebasing(repo):
+        return False
+    if _git(repo, "pull", "-q", "--rebase", check=False).returncode == 0:
         return True
-    _git(repo, "rebase", "--abort", check=False)
+    if _rebasing(repo):
+        _git(repo, "rebase", "--abort", check=False)
     return False
 
 
@@ -70,18 +82,29 @@ def _push(repo: Path) -> bool:
 
 def _safe_target(repo: Path, rel: str) -> Path:
     target = (repo / rel).resolve()
-    if repo.resolve() not in target.parents:
+    if repo.resolve() not in target.parents or ".git" in Path(rel).parts:
         raise ValueError(f"path escapes repo: {rel}")
     return target
 
 
+def check_branch(repo: Path, branch: str) -> None:
+    head = _git(repo, "symbolic-ref", "-q", "--short", "HEAD", check=False).stdout.strip()
+    if head != branch:
+        raise GitError(f"{repo} is on {head or 'a detached HEAD'}, not {branch}; not writing")
+
+
 def sync_write(repo: Path, files: Dict[str, str], message: str, state_dir: Path,
-               deletes: Iterable[str] = ()) -> bool:
+               deletes: Iterable[str] = (), branch: str = "main",
+               precheck: Optional[Callable[[], bool]] = None) -> bool:
     """Make the repo hold `files` (and not `deletes`), commit only those paths, then sync.
-    Returns True when a commit was made. A failed pull/push is reported, never raised."""
+    `precheck` runs under the lock; False cancels the write. Returns True when a commit
+    was made. A failed pull/push is reported, never raised."""
     targets = {rel: _safe_target(repo, rel) for rel in files}
     gone = {rel: _safe_target(repo, rel) for rel in deletes}
     with repo_lock(repo, state_dir):
+        check_branch(repo, branch)
+        if precheck is not None and not precheck():
+            return False
         for rel, path in targets.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(files[rel], encoding="utf-8")

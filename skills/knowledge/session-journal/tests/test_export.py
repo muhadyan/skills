@@ -17,6 +17,8 @@ def vault_note(title, safe=True, angle="Cerita singkat.", lessons="- pelajaran",
 
 RULES = {"rules": [
     {"id": "me-employer", "kind": "regex", "category": "nda-nama", "patterns": ["\\bglobex\\b"]},
+    {"id": "me-literal", "kind": "regex", "category": "nda-nama", "literal": True, "patterns": ["a.b (corp)"]},
+    {"id": "me-metric", "kind": "regex", "category": "nda-angka", "pattern": "\\d+\\s*pengguna"},
     {"id": "me-price", "kind": "regex", "category": "harga", "patterns": ["\\brp\\d"]},
 ]}
 
@@ -105,6 +107,32 @@ class ExportTest(TempDirCase, unittest.TestCase):
         (self.vault / "sessions").rmdir()
         with self.assertRaises(export.ExportError):
             export.run(self.cfg)
+
+    def test_singular_pattern_and_literal_rules_are_enforced(self):
+        self.put("2026-10-07-claude-aaaa1111.md", vault_note("Safe", angle="Ada tujuh pengguna baru, lumayan."))
+        self.put("2026-10-07-claude-bbbb2222.md", vault_note("Kerja bareng a.b (corp)"))
+        self.put("2026-10-07-claude-cccc3333.md", vault_note("Kerja bareng axb (corp)"))
+        result = export.run(self.cfg)
+        self.assertEqual(result.blocked, ["2026-10-07-claude-bbbb2222.md"])  # literal: axb is not a.b
+        self.put("2026-10-07-claude-aaaa1111.md", vault_note("Safe", angle="Ada 7 pengguna baru, lumayan."))
+        self.assertIn("2026-10-07-claude-aaaa1111.md", export.run(self.cfg).blocked)
+
+    def test_nda_rule_without_patterns_fails_closed(self):
+        (self.brand / "rules.json").write_text(json.dumps({"rules": [
+            {"id": "x", "kind": "regex", "category": "nda-x"}]}), encoding="utf-8")
+        self.put("2026-10-07-claude-aaaa1111.md", vault_note("Safe one"))
+        with self.assertRaises(export.ExportError):
+            export.run(self.cfg)
+
+    def test_post_angle_content_checks(self):
+        bad = {"b1": "Cek https://evil.example ya.", "b2": "Hemat 25 jam sebulan.", "b3": "Follow @someone dulu.",
+               "b4": "Harganya Rp5 aja.", "b5": "x" * 600, "b6": "Token sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA bocor."}
+        for i, angle in enumerate(bad.values()):
+            self.put(f"2026-10-07-claude-{i}bad0000.md", vault_note(f"T{i}", angle=angle))
+        self.put("2026-10-07-claude-good0000.md", vault_note("Good", angle="Aku pindahin 3 fitur jadi satu chat."))
+        result = export.run(self.cfg)
+        self.assertEqual(result.exported, ["2026-10-07-claude-good0000.md"])
+        self.assertEqual(len(result.blocked), len(bad))
 
     def test_no_export_repo_is_a_noop(self):
         cfg = dataclasses.replace(self.cfg, export_repo=None)

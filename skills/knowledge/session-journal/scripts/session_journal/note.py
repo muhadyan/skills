@@ -15,14 +15,18 @@ from .transcript import Transcript
 SECRET_PATTERNS = [
     r"sk-ant-[A-Za-z0-9_\-]{10,}",
     r"sk-[A-Za-z0-9_\-]{20,}",
+    r"[spr]k_(?:live|test)_[A-Za-z0-9]{8,}",
     r"gh[pousr]_[A-Za-z0-9]{20,}",
     r"github_pat_[A-Za-z0-9_]{20,}",
     r"AKIA[0-9A-Z]{16}",
+    r"AIza[0-9A-Za-z_\-]{30,}",
     r"xox[abprs]-[A-Za-z0-9\-]{10,}",
     r"\d{8,10}:[A-Za-z0-9_\-]{30,}",  # Telegram bot token
+    r"eyJ[\w-]{10,}\.[\w-]+\.[\w-]+",  # JWT
     r"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----",
-    r"(?i:\b(?:password|passwd|pwd|secret|token|api[_-]?key)\b\s*[:=]\s*\S+)",
-    r"(?i:postgres(?:ql)?://[^\s:]+:[^\s@]+@\S+)",
+    r"(?i:bearer\s+\S{16,})",
+    r"(?i:[\w-]*(?:password|passwd|pwd|secret|token|api[_-]?key)[\w-]*\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|\S+))",
+    r"\b[a-z][a-z0-9+.\-]*://[^\s/:@]*:[^\s@]+@\S+",  # URL with a password
 ]
 SECRET_RE = re.compile("|".join(f"(?:{p})" for p in SECRET_PATTERNS))
 
@@ -47,19 +51,26 @@ def eligible(t: Transcript, roots: Iterable[Path]) -> bool:
     return bool(t.cwds) and all(under_roots(c, roots) for c in t.cwds)
 
 
-def project_name(cwd: str) -> str:
-    """Git top-level folder name when it still exists, else the last folder of cwd."""
+def project_root(cwd: str) -> str:
+    """Git top-level folder when it still exists, else cwd itself."""
     if not cwd:
         return ""
-    path = Path(cwd)
+    path = Path(cwd).expanduser()
     for p in [path, *path.parents]:
         if (p / ".git").exists():
-            return p.name
-    return path.name
+            return str(p)
+    return str(path)
+
+
+def project_name(cwd: str) -> str:
+    return Path(project_root(cwd)).name if cwd else ""
+
+
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def rel_path(t: Transcript) -> str:
-    date = t.date or "0000-00-00"
+    date = t.date if DATE_RE.match(t.date or "") else "0000-00-00"
     yyyy, mm = date[:4], date[5:7]
     short = re.sub(r"[^A-Za-z0-9]", "", t.session_id)[:8] or "unknown"
     return f"sessions/{yyyy}/{mm}/{date}-{t.agent}-{short}.md"

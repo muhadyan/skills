@@ -24,6 +24,12 @@ class ConfigTest(TempDirCase, unittest.TestCase):
         self.assertIsNone(cfg.export_repo)
         self.assertEqual(cfg.denylist, self.vault / "_meta" / "nda-denylist.txt")
 
+    def test_inline_comments_are_stripped(self):
+        f = self.tmp / "config.env"
+        f.write_text(f"VAULT={self.vault}   # a git clone\nMODEL=m # c\n", encoding="utf-8")
+        cfg = config.load(f)
+        self.assertEqual((cfg.vault, cfg.model), (self.vault, "m"))
+
     def test_missing_file_or_vault_is_an_error(self):
         with self.assertRaises(config.ConfigError):
             config.load(self.tmp / "nope.env")
@@ -31,6 +37,19 @@ class ConfigTest(TempDirCase, unittest.TestCase):
         f.write_text("MODEL=x\n", encoding="utf-8")
         with self.assertRaises(config.ConfigError):
             config.load(f)
+
+
+class StateTest(TempDirCase, unittest.TestCase):
+    def test_concurrent_writers_lose_no_updates(self):
+        import threading
+        from session_journal import state
+        paths = [self.tmp / f"t{i}.jsonl" for i in range(40)]
+        threads = [threading.Thread(target=state.mark_done, args=(self.cfg, p, 1.0)) for p in paths]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(len(state.load(self.cfg)), 40)
 
 
 class CliTest(TempDirCase, unittest.TestCase):

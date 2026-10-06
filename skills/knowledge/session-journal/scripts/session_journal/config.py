@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Tuple
@@ -24,6 +25,7 @@ class Config:
     export_repo: Optional[Path]
     export_dir: str
     export_rules: str
+    branch: str
     state_dir: Path
     min_prompts: int
     idle_hours: float
@@ -38,6 +40,7 @@ def _read_env_file(path: Path) -> dict:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
+        value = re.sub(r"\s+#.*$", "", value.strip())  # inline comment
         values[key.strip()] = value.strip().strip('"').strip("'")
     return values
 
@@ -64,6 +67,7 @@ def load(path: Optional[Path] = None) -> Config:
         export_repo=_path(v["EXPORT_REPO"]) if v.get("EXPORT_REPO") else None,
         export_dir=v.get("EXPORT_DIR", "knowledge"),
         export_rules=v.get("EXPORT_RULES", "rules.json"),
+        branch=v.get("BRANCH", "main"),
         state_dir=_path(v.get("STATE_DIR", "~/.local/state/session-journal")),
         min_prompts=int(v.get("MIN_PROMPTS", "2")),
         idle_hours=float(v.get("IDLE_HOURS", "2")),

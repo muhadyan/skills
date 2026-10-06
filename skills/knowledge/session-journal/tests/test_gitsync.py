@@ -47,6 +47,42 @@ class GitSyncTest(TempDirCase, unittest.TestCase):
         self.assertIn("offline", git(clone, "log", "--oneline", "-1"))
         self.assertFalse((clone / ".git" / "rebase-merge").exists())
 
+    def test_refuses_to_write_on_another_branch_or_detached_head(self):
+        _, clone = make_repo(self.tmp, "repo")
+        git(clone, "checkout", "-q", "-b", "feature")
+        with self.assertRaises(gitsync.GitError):
+            gitsync.sync_write(clone, {"a.md": "x\n"}, "nope", self.cfg.state_dir)
+        self.assertFalse((clone / "a.md").exists())
+        git(clone, "checkout", "-q", "--detach")
+        with self.assertRaises(gitsync.GitError):
+            gitsync.sync_write(clone, {"a.md": "x\n"}, "nope", self.cfg.state_dir)
+
+    def test_user_edits_are_never_stashed_or_overwritten(self):
+        bare, clone = make_repo(self.tmp, "repo", {"mine.md": "v1\n"})
+        other = self.tmp / "other"
+        git(self.tmp, "clone", "-q", str(bare), str(other))
+        git(other, "config", "user.email", "o@example.com")
+        git(other, "config", "user.name", "o")
+        (other / "mine.md").write_text("remote v2\n")
+        git(other, "commit", "-qam", "remote edit")
+        git(other, "push", "-q")
+        (clone / "mine.md").write_text("local unsaved edit\n")
+        self.assertTrue(gitsync.sync_write(clone, {"note.md": "n\n"}, "note", self.cfg.state_dir))
+        self.assertEqual((clone / "mine.md").read_text(), "local unsaved edit\n")
+        self.assertEqual(git(clone, "stash", "list"), "")
+        self.assertFalse((clone / ".git" / "rebase-merge").exists())
+
+    def test_never_touches_a_rebase_someone_else_started(self):
+        _, clone = make_repo(self.tmp, "repo")
+        (clone / ".git" / "rebase-merge").mkdir()
+        self.assertTrue(gitsync.sync_write(clone, {"a.md": "x\n"}, "m", self.cfg.state_dir))
+        self.assertTrue((clone / ".git" / "rebase-merge").exists())
+
+    def test_precheck_runs_under_the_lock_and_can_cancel(self):
+        _, clone = make_repo(self.tmp, "repo")
+        self.assertFalse(gitsync.sync_write(clone, {"a.md": "x\n"}, "m", self.cfg.state_dir, precheck=lambda: False))
+        self.assertFalse((clone / "a.md").exists())
+
     def test_refuses_paths_outside_repo(self):
         _, clone = make_repo(self.tmp, "repo")
         with self.assertRaises(ValueError):
