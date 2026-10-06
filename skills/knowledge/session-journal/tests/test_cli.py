@@ -56,7 +56,8 @@ class CliTest(TempDirCase, unittest.TestCase):
     def run_cli(self, *args, stdin="", **env):
         f = self.tmp / "config.env"
         f.write_text(f"VAULT={self.vault}\nSTATE_DIR={self.tmp / 'state'}\n"
-                     f"CLAUDE_PROJECTS={self.tmp / 'none'}\nCODEX_SESSIONS={self.tmp / 'none'}\n", encoding="utf-8")
+                     f"CLAUDE_PROJECTS={self.tmp / 'none'}\nCODEX_SESSIONS={self.tmp / 'none'}\n"
+                     f"CLAUDE_SETTINGS={self.tmp / 'none.json'}\nCODEX_HOOKS={self.tmp / 'none.json'}\n", encoding="utf-8")
         full_env = {**os.environ, "SESSION_JOURNAL_CONFIG": str(f), **env}
         return subprocess.run([sys.executable, str(JOURNAL), *args], input=stdin, capture_output=True,
                               text=True, env=full_env, timeout=30)
@@ -80,6 +81,9 @@ class CliTest(TempDirCase, unittest.TestCase):
         self.assertIn("Session journal is on", self.run_cli("context", str(self.tmp)).stdout)
         self.assertIn("sweep: 0 summarized", self.run_cli("sweep", "--max", "1").stdout)
         self.assertIn("export: not configured", self.run_cli("export").stdout)
+        doc = self.run_cli("doctor")
+        self.assertEqual(doc.returncode, 1)  # no hooks in the temp setup
+        self.assertIn("FAIL claude hooks", doc.stdout)
 
 
 if __name__ == "__main__":

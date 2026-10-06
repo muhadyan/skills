@@ -1,0 +1,28 @@
+name: test
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Git identity for test repos
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          git config --global init.defaultBranch main
+      - name: Skill tests (every skills/*/*/tests folder)
+        run: |
+          set -e
+          for t in skills/*/*/tests; do
+            echo "== $t"
+            (cd "$t" && python -m unittest -q)
+          done

@@ -60,8 +60,9 @@ Logs: `~/.local/state/session-journal/journal.log`. State: `processed.json` in t
    "SessionStart": [{"hooks": [{"type": "command", "command": "python3 ~/.claude/skills/session-journal/scripts/journal.py hook start --agent claude", "timeout": 10}]}],
    "SessionEnd":   [{"hooks": [{"type": "command", "command": "python3 ~/.claude/skills/session-journal/scripts/journal.py hook end --agent claude", "timeout": 5}]}]
    ```
-   Use `--agent codex` in the Codex file. Codex asks you to trust new hooks once (`/hooks`).
-   Done when a new session shows "Session journal is on" in its context.
+   Use `--agent codex` in the Codex file. Codex skips new hooks silently until you trust them once:
+   open `codex`, run `/hooks`, approve them.
+   Done when `J doctor` shows no FAIL.
 3. Backfill: `J sweep --days 30 --max 0` in the background. Then `J export`.
 
 ## Manual use
@@ -69,8 +70,22 @@ Logs: `~/.local/state/session-journal/journal.log`. State: `processed.json` in t
 - Write this session's note now: `J summarize --agent claude <transcript_path>` (Claude transcripts are in
   `~/.claude/projects/<cwd-slug>/<session_id>.jsonl`).
 - Look up past lessons: `J context <dir>`, or grep the vault's `sessions/` by `project:` and `## Lessons`.
+- Something looks off: `J doctor` checks hooks (and Codex trust), the vault branch, unpushed notes,
+  the denylist and given-up transcripts. The start hook also warns when notes are not reaching the remote.
 - Missing note: read the log, then check the skip rules in step 3. Missing export: run `J export`; it prints
   exported and blocked note names.
+
+## Live check
+
+Prove the hooks fire without driving a TUI:
+
+```
+codex exec --dangerously-bypass-hook-trust --skip-git-repo-check "Reply with: ok" < /dev/null
+tail -2 ~/.local/state/session-journal/journal.log   # expect: summarize: …/rollout-….jsonl -> skipped
+```
+
+`skipped` is right: headless runs are never summarized; the line proves SessionEnd reached the script.
+For Claude, end any interactive session and look for its transcript path in the same log.
 
 ## Tests
 

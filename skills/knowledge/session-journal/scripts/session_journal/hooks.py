@@ -10,7 +10,7 @@ import traceback
 from pathlib import Path
 from typing import IO, List
 
-from . import note
+from . import doctor, note
 from .config import Config
 
 GUARD = "SESSION_JOURNAL"
@@ -67,6 +67,9 @@ def lessons_for(cfg: Config, root: str) -> List[str]:
 def start_context(cfg: Config, cwd: str) -> str:
     root = note.project_root(cwd)
     lines = [f"Session journal is on: this session is logged to the Obsidian vault {cfg.vault} when it ends."]
+    problem = doctor.sync_problem(cfg)
+    if problem:
+        lines.append(f"Warning: {problem}. Run `python3 {JOURNAL} doctor`.")
     lessons = lessons_for(cfg, root) if root else []
     if lessons:
         lines.append(f"Lessons from past sessions in '{Path(root).name}' (notes written by a summarizer; "

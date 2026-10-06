@@ -80,6 +80,14 @@ def _push(repo: Path) -> bool:
     return False
 
 
+def _sync(repo: Path) -> bool:
+    """Pull then push. When the pull cannot run (the user has unsaved edits to tracked files),
+    a plain fast-forward push still works as long as the remote has not moved."""
+    if pull(repo):
+        return _push(repo)
+    return _git(repo, "push", "-q", check=False).returncode == 0
+
+
 def _safe_target(repo: Path, rel: str) -> Path:
     target = (repo / rel).resolve()
     if repo.resolve() not in target.parents or ".git" in Path(rel).parts:
@@ -118,6 +126,6 @@ def sync_write(repo: Path, files: Dict[str, str], message: str, state_dir: Path,
             if _git(repo, "diff", "--cached", "--name-only", "--", *paths).stdout.strip():
                 _git(repo, "commit", "-q", "-m", message, "--", *paths)
                 committed = True
-        if has_remote(repo) and not (pull(repo) and _push(repo)):
+        if has_remote(repo) and not _sync(repo):
             print(f"gitsync: {repo} not synced; the commit stays local until the next sync", flush=True)
         return committed
