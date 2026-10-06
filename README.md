@@ -45,6 +45,7 @@ Pick the skills you want and which agents to install them on. Pull later changes
 ### Knowledge
 
 - **[session-journal](./skills/knowledge/session-journal/SKILL.md)**: Log every Claude Code and Codex session to an Obsidian vault (work done + lessons) through SessionStart/SessionEnd hooks, feed past lessons back at session start, and export brand-safe notes (path gate + NDA denylist) as a knowledge base for a content bot. Stdlib Python, needs the `claude` CLI and `git`.
+- **[vault-memory](./skills/knowledge/vault-memory/SKILL.md)**: Keep agent memory as notes in an Obsidian vault instead of each tool's built-in memory, so Claude Code, Codex and any AGENTS.md-reading agent share one memory. SessionStart hook injects the index, SessionEnd hook commits `memory/` (secrets stripped), and a one-off import moves old Claude Code and Codex memories in with secrets scrubbed. Stdlib Python, needs `git`.
 
 ## License
 
