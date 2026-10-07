@@ -26,7 +26,7 @@ Scripts live in `${CLAUDE_SKILL_DIR}/scripts` (outside Claude Code: the `scripts
   ```
   There is no hand-made index file. The index is built from this frontmatter.
 - **SessionStart hook** (`M hook start`): prints the vault path, this project's folder, and the index
-  (`_global` first, then the project, newest first, capped at 200 lines / 25KB) as `additionalContext`.
+  (`_global` first, then the project; `user`/`feedback` notes lead each folder, then newest first; capped at 200 lines / 9KB because Claude Code inlines hook context only under ~10,000 characters and shows a 2 KB preview of anything larger) as `additionalContext`.
 - **SessionEnd hook** (`M hook end`): starts a detached `M commit` and returns at once.
 - **commit**: under session-journal's flock for the same repo
   (`<LOCK_DIR>/repo-<sha1(resolved vault path)[:12]>.lock`), commits every change under `memory/` and nothing

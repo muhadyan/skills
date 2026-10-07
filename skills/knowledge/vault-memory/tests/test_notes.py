@@ -76,6 +76,19 @@ class IndexTest(TempDirCase, unittest.TestCase):
             "- [[old]] (project) Old fact",
         ])
 
+    def test_steering_kinds_lead_each_folder(self):
+        """user / feedback notes steer every session, so they sort ahead of
+        newer project / reference notes and survive when the cap cuts."""
+        self._note("app", "fresh-fact", "project", "Fresh", "2026-10-07")
+        self._note("app", "ref", "reference", "Link", "2026-10-06")
+        self._note("app", "rule", "feedback", "Old rule", "2026-07-01")
+        lines = notes.index_lines(self.vault, "app")
+        self.assertEqual(lines[1:], [
+            "- [[rule]] (feedback) Old rule",
+            "- [[fresh-fact]] (project) Fresh",
+            "- [[ref]] (reference) Link",
+        ])
+
     def test_ignores_non_memory_files(self):
         write(self.vault / "memory" / "app" / "scratch.md", "no frontmatter\n")
         self._note("app", "real")

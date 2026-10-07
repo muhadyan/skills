@@ -10,7 +10,13 @@ MEMORY_DIR = "memory"
 GLOBAL = "_global"
 KINDS = ("user", "feedback", "project", "reference")
 MAX_LINES = 200
-MAX_BYTES = 25_000
+# Claude Code inlines hook context only under ~10,000 characters; anything
+# larger is saved to a file and the agent sees a 2 KB preview. Bytes >= chars,
+# so a byte cap here (plus the hook's ~500-byte header) stays inline.
+MAX_BYTES = 9_000
+# Kinds that steer behaviour lead each folder, so the cap cuts project and
+# reference notes before a correction the agent must follow.
+KIND_ORDER = {"user": 0, "feedback": 1}
 MAX_DESC = 200
 HEAD_BYTES = 8192  # frontmatter sits at the top; the index never reads whole notes
 _PLAIN = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_ ./+-]*$")
@@ -110,7 +116,8 @@ def index_lines(vault: Path, project: str) -> List[str]:
         return one_line(value) if isinstance(value, str) else ""
 
     for folder in folders:
-        found = load_folder(vault, folder)
+        found = sorted(load_folder(vault, folder),
+                       key=lambda nm: KIND_ORDER.get(nm[1].get("kind"), len(KIND_ORDER)))
         if not found:
             continue
         title = "Global" if folder == GLOBAL else f"Project {folder}"
