@@ -34,6 +34,21 @@ class HookTest(TempDirCase, unittest.TestCase):
         self.assertIn("- [[x]] (project) App fact", ctx)
         spawn.assert_not_called()
 
+    def test_start_stays_inline_and_keeps_feedback_when_capped(self):
+        """Claude Code inlines hook context only under ~10,000 characters; a
+        larger block is saved to a file and only a 2 KB preview reaches the
+        agent, which then misses every note past it."""
+        for i in range(150):
+            write(self.vault / "memory" / "app" / f"p{i:03d}.md",
+                  memory_note("project", "日本語の説明" * 12, "b", updated="2026-10-07"))
+        write(self.vault / "memory" / "app" / "no-docker.md",
+              memory_note("feedback", "Never use Docker", "b", updated="2020-01-01"))
+        out, _ = self.call("start", {"cwd": str(self.proj)})
+        ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        self.assertLess(len(ctx), 10_000)
+        self.assertIn("- [[no-docker]] (feedback) Never use Docker", ctx)
+        self.assertIn("more not shown", ctx)
+
     def test_start_for_new_project_still_says_where_to_write(self):
         new = self.tmp / "Developer" / "fresh"
         new.mkdir()
