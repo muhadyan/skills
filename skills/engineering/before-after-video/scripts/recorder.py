@@ -263,6 +263,14 @@ class Recorder:
         if box is None:
             raise RuntimeError(f"not visible: {target}")
         x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        # scroll_into_view_if_needed leaves a target alone when it counts as in
+        # view, even if a sticky header covers it: the click then lands on the
+        # header and typing goes nowhere, silently. Re-centre when the point is
+        # not the target (the recorder's own overlays are pointer-events:none).
+        if not loc.evaluate(_HIT_TEST_JS, [x, y]):
+            loc.evaluate("e => e.scrollIntoView({block: 'center', inline: 'center'})")
+            box = loc.bounding_box() or box
+            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
         self.page.mouse.move(x, y, steps=self.glide_steps)
         self._pos = (x, y)
         return x, y
@@ -295,6 +303,10 @@ class Recorder:
         if over is not None:
             self.move_to(over)
         self.page.mouse.wheel(dx, dy)
+
+
+# True when the element at (x, y) is the target or inside it.
+_HIT_TEST_JS = "(e, [x, y]) => { const t = document.elementFromPoint(x, y); return !!t && (t === e || e.contains(t)); }"
 
 
 def to_mp4(src: Path, dst: Path, *, crf: int = 20) -> Path:
