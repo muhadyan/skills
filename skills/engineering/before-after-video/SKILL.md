@@ -65,4 +65,5 @@ The scripts live in `${CLAUDE_SKILL_DIR}/scripts`. Outside Claude Code that vari
 - Over 10 MB, GitHub's free plan refuses the video. `recorder.py` and `compose.py` print each file's size; re-record with `Recorder(..., crf=26)` or compose with `--crf 26` to shrink it.
 - `Recorder` takes the first match of a locator, so a text that appears twice will not abort the take — but check the pointer landed on the intended one. A locator that matches nothing fails after 10 s with `not visible: …`.
 - A take that raises leaves no MP4 (on the fallback path the raw WebM stays in `OUT/_<mode>_raw/`). Fix the flow and re-run from the data reset.
+- The takes read a shared database, so anything else writing to it during a take shows up on screen: an integration test run (yours, or a review agent's) added a fixture row and moved a count in the AFTER take (2026-10-13). Record while nothing else writes, and give parallel review agents read-only work.
 - Playwright's bundled browser build often mismatches the installed package (`Executable doesn't exist … playwright install`). `channel="chrome"` (the default) sidesteps it.
