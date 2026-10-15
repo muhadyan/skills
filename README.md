@@ -38,6 +38,10 @@ Pick the skills you want and which agents to install them on. Pull later changes
 
 ## Reference
 
+### Design
+
+- **[ux-revamp](./skills/design/ux-revamp/SKILL.md)**: Revamp an app's UI/UX so a non-tech-savvy person can use it without help, while every current feature keeps working (backend, data and infra changes included when needed). Plan mode with deep research, [screensdesign.com](https://screensdesign.com) and a one-question-at-a-time grill; a senior designer sub-agent with [Emil Kowalski's skills](https://github.com/emilkowalski/skills); then build, verify in a real browser, two adversarial reviews, PRs with before/after videos, and merge. Type `/ux-revamp` to run it.
+
 ### Engineering
 
 - **[before-after-video](./skills/engineering/before-after-video/SKILL.md)**: Record before/after MP4 videos of a UI change (visible mouse pointer, click rings, key-press box, captions) plus a side-by-side version, with Playwright + ffmpeg. Saves files by default; posts to a GitHub PR/issue (`gh --attach`) or a ClickUp comment when you ask. Needs `uv`, `ffmpeg` and Google Chrome.
