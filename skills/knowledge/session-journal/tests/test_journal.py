@@ -25,12 +25,19 @@ class HookTest(TempDirCase, unittest.TestCase):
         return io.StringIO(json.dumps(p))
 
     def test_end_spawns_detached_summarize(self):
+        write_jsonl(self.tmp / "t.jsonl", [{"type": "user"}])
         with mock.patch.object(hooks, "spawn") as spawn:
             hooks.handle("end", "claude", self.payload(), self.cfg, out=io.StringIO())
         spawn.assert_called_once()
         args = spawn.call_args[0][1]
         self.assertEqual(args[:4], ["summarize", "--agent", "claude", "--"])
         self.assertEqual(args[-1], str(self.tmp / "t.jsonl"))
+
+    def test_end_without_transcript_file_does_nothing(self):
+        # A session with only /exit, /usage or /resume never writes a transcript.
+        with mock.patch.object(hooks, "spawn") as spawn:
+            hooks.handle("end", "claude", self.payload(), self.cfg, out=io.StringIO())
+        spawn.assert_not_called()
 
     def test_guard_env_and_subagents_do_nothing(self):
         with mock.patch.object(hooks, "spawn") as spawn:
