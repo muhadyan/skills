@@ -89,6 +89,8 @@ def handle(event: str, agent: str, stdin: IO[str], cfg: Config, out: IO[str] = s
         return
     transcript = payload.get("transcript_path") or ""
     if event == "end" and transcript:
+        if not Path(transcript).is_file():
+            return  # only slash commands (/exit, /usage, /resume): no transcript, nothing to log
         spawn(cfg, ["summarize", "--agent", agent, "--", transcript])
     elif event == "start":
         ctx = start_context(cfg, payload.get("cwd") or os.getcwd())
