@@ -163,6 +163,34 @@ class ReviewFindingsTest(TempDirCase):
             r.pause(1)
         self.assertLess(duration(self.tmp / "firstcut_AFTER.mp4"), time.time() - start - 2)
 
+    def test_pointer_lands_on_the_target_on_a_smooth_scrolling_page(self):
+        with self.rec("smooth") as r:
+            p = r.page
+            r.goto(self.url("after"))
+            p.evaluate("document.documentElement.style.scrollBehavior = 'smooth'; document.body.style.minHeight = '3000px'")
+            row = p.locator("tbody tr").first
+            # the row's top 4 px above the screen: Playwright scrolls it to the top edge, under the sticky header
+            row.evaluate("e => window.scrollTo({top: e.getBoundingClientRect().top + scrollY + 4, behavior: 'instant'})")
+            r.move_to(row)
+            r.pause(1)  # any smooth scroll has ended by now
+            box = row.bounding_box()
+            transform = p.evaluate("document.getElementById('__rec_ptr').style.transform")
+            px, py = (float(v) for v in transform[len("translate("):-1].replace("px", "").split(","))
+            self.assertAlmostEqual(px + 3, box["x"] + box["width"] / 2, delta=3)
+            self.assertAlmostEqual(py + 2, box["y"] + box["height"] / 2, delta=3)
+
+    def test_show_saves_its_still_at_the_evidence(self):
+        with self.rec("evid") as r:
+            p = r.page
+            r.goto(self.url("after"))
+            r.show(p.get_by_role("button", name="Print list"), "the print button", hold=0.3)
+            x, y = r._pos
+            r.click(p.locator("tbody tr").last.get_by_role("button", name="Edit"))  # still under the first caption
+            r.show(p.get_by_label("Discount"), "the discount field", hold=0.3)
+        still = self.tmp / "evid_AFTER_stills" / "01.jpg"
+        self.assertTrue(base.near(base.pixel(still, int(x) + 4, int(y) + 10), (17, 17, 17), tol=60),
+                        "the first still was saved after the next click, not at its evidence")
+
     def test_password_in_a_web_component_stays_hidden(self):
         with self.rec("shadow") as r:
             p = r.page
