@@ -1,150 +1,43 @@
 """Reusable before/after screen-video recorder (Playwright + ffmpeg).
 
-Headless Playwright video has no mouse pointer and no key feedback, so this
-module draws them into the page itself:
-
-* a pointer arrow that follows every real mouse event, with a ripple on click
-* a yellow "Keys pressed: ..." box fed by real keydown events
-* a caption bar for narration, and a BEFORE/AFTER badge in the corner
-
-All of it is installed with ``add_init_script`` so it survives reloads.
-Every interaction goes through real input events (mouse.move / mouse.click /
-keyboard.type), never ``element.value = ...``, so the video shows what a
-human would get, including bugs that only real key presses trigger.
+Headless Playwright video has no mouse pointer, no key feedback and no native
+dialogs, so ``overlay.js`` draws them into the page itself: a pointer arrow
+with a ring on each click, a "Keys pressed" box, a caption bar, a BEFORE/AFTER
+badge and a "Browser alert" box. Every interaction goes through real input
+events (mouse.move / mouse.click / keyboard.type), never ``element.value = ...``,
+so the video shows what a human would get, including bugs that only real key
+presses trigger.
 
 Capture: on Playwright >= 1.59 frames come from ``page.screencast`` and are
-encoded by ffmpeg at a chosen quality. Older Playwright falls back to the
-built-in ``record_video_dir`` (VP8 at a fixed ~1 Mbit/s, visibly blurry).
+encoded by ffmpeg at a chosen quality (``encoder.py``). Older Playwright, or
+``native=False``, falls back to the built-in ``record_video_dir`` (VP8 at a
+fixed ~1 Mbit/s, visibly blurry; no cuts and no late start).
 """
 from __future__ import annotations
 
+import contextlib
+import json
 import shutil
-import subprocess
+import sys
 import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterable, Iterator, Optional
 
-from playwright.sync_api import Locator, Page, sync_playwright
+from playwright.sync_api import Dialog, Locator, Page, sync_playwright
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
+from encoder import FrameEncoder
 from media import EVEN_DIMS, report_size, require_ffmpeg, run_ffmpeg, video_name
+from options import context_kwargs, launch_kwargs
 
-OVERLAY_JS = r"""
-(() => {
-  if (window.__recOverlay) return; window.__recOverlay = true;
-  window.__recSecret = false;
-  const install = () => {
-    const ptr = document.createElement('div');
-    ptr.id = '__rec_ptr';
-    ptr.innerHTML = '<svg width="28" height="28" viewBox="0 0 28 28"><path d="M3 2 L3 22 L8.5 16.8 L12.2 25 L15.6 23.5 L11.9 15.4 L19 15.4 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>';
-    ptr.style.cssText = 'position:fixed;left:0;top:0;width:28px;height:28px;z-index:2147483647;'
-      + 'pointer-events:none;transform:translate(-100px,-100px);filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))';
-    const keys = document.createElement('div');
-    keys.id = '__rec_keys';
-    keys.style.cssText = 'position:fixed;right:24px;top:70px;z-index:2147483646;background:#facc15;color:#111;'
-      + 'font:700 22px/1.3 ui-monospace,Menlo,monospace;padding:8px 16px;border-radius:8px;'
-      + 'box-shadow:0 4px 16px rgba(0,0,0,.25);display:none;pointer-events:none';
-    const cap = document.createElement('div');
-    cap.id = '__rec_cap';
-    cap.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483646;'
-      + 'background:rgba(17,24,39,.92);color:#fff;font:600 20px/1.4 system-ui;padding:12px 22px;'
-      + 'border-radius:10px;max-width:1100px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.3);'
-      + 'display:none;pointer-events:none';
-    const badge = document.createElement('div');
-    badge.id = '__rec_badge';
-    badge.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:2147483646;color:#fff;'
-      + 'font:800 15px/1 system-ui;letter-spacing:.06em;padding:6px 10px;border-radius:6px;'
-      + 'display:none;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,.25)';
-    document.body.append(ptr, keys, cap, badge);
-    document.addEventListener('mousemove', e => {
-      ptr.style.transform = `translate(${e.clientX - 3}px, ${e.clientY - 2}px)`;
-    }, true);
-    document.addEventListener('mousedown', e => {
-      const r = document.createElement('div');
-      r.style.cssText = `position:fixed;left:${e.clientX - 18}px;top:${e.clientY - 18}px;width:36px;height:36px;`
-        + 'border-radius:50%;border:3px solid #ef4444;z-index:2147483646;pointer-events:none;'
-        + 'transition:transform .45s ease-out,opacity .45s ease-out;transform:scale(.4);opacity:1';
-      document.body.appendChild(r);
-      requestAnimationFrame(() => { r.style.transform = 'scale(1.4)'; r.style.opacity = '0'; });
-      setTimeout(() => r.remove(), 500);
-    }, true);
-    let typed = '', hideTimer = 0;
-    document.addEventListener('keydown', e => {
-      // never show passwords or fields typed with secret=True on video
-      const secret = window.__recSecret || (e.target && e.target.type === 'password');
-      if (e.metaKey || e.ctrlKey) {
-        typed = '';
-        keys.textContent = 'Keys pressed: ' + (e.metaKey ? '⌘' : 'Ctrl+') + e.key.toUpperCase();
-      } else if (e.key === 'Backspace') {
-        typed = typed.slice(0, -1); keys.textContent = 'Keys pressed: ' + typed + ' ⌫';
-      } else if (e.key.length === 1) {
-        typed += secret ? '•' : e.key; keys.textContent = 'Keys pressed: ' + typed;
-      } else { return; }
-      keys.style.display = 'block';
-      clearTimeout(hideTimer);  // 6 s after the last key the box fades, so old keys don't linger
-      hideTimer = setTimeout(() => { keys.style.display = 'none'; typed = ''; }, 6000);
-    }, true);
-    window.__recCaption = (t, top) => {
-      cap.textContent = t; cap.style.display = t ? 'block' : 'none';
-      cap.style.top = top ? '64px' : ''; cap.style.bottom = top ? '' : '28px';
-    };
-    window.__recKeysReset = () => { typed = ''; keys.style.display = 'none'; };
-    window.__recBadge = (t, color) => {
-      badge.textContent = t; badge.style.background = color; badge.style.display = t ? 'block' : 'none';
-    };
-    if (window.__recBadgeInit) window.__recBadge(...window.__recBadgeInit);
-  };
-  if (document.body) install(); else document.addEventListener('DOMContentLoaded', install);
-})();
-"""
-
+_FrameEncoder = FrameEncoder  # old name, kept for flow scripts that import it
+OVERLAY_JS = (Path(__file__).with_name("overlay.js")).read_text(encoding="utf-8")
 BADGE_COLORS = {"before": "#b91c1c", "after": "#15803d"}  # red = old, green = new
+DIALOG_ACTIONS = ("dismiss", "accept", None)
 
-
-class _FrameEncoder:
-    """Turns screencast JPEG frames into a constant-frame-rate H.264 MP4.
-
-    The browser only sends a frame when the screen changes, so each frame is
-    repeated until the next one's timestamp; that keeps pauses their real length.
-    """
-
-    def __init__(self, dst: Path, fps: int, crf: int):
-        self.fps, self.dst = fps, dst
-        self.t0: float | None = None   # browser timestamp (ms) of the first frame
-        self.wall0 = 0.0               # wall clock (ms) at the first frame
-        self.slots = 0                 # frames written so far
-        self.last: bytes | None = None
-        self.proc = subprocess.Popen(
-            ["ffmpeg", "-v", "error", "-y", "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", str(fps), "-i", "-",
-             "-vf", EVEN_DIMS, "-c:v", "libx264", "-preset", "medium", "-tune", "animation", "-crf", str(crf),
-             "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(dst)],
-            stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-
-    def _fill_to(self, slot: int) -> None:
-        while self.slots < slot and self.last is not None:
-            self.proc.stdin.write(self.last)
-            self.slots += 1
-
-    def on_frame(self, frame) -> None:
-        ts = frame["timestamp"]
-        if self.t0 is None:
-            self.t0, self.wall0 = ts, time.time() * 1000
-        self._fill_to(int((ts - self.t0) * self.fps / 1000))
-        self.last = frame["data"]
-        self.proc.stdin.write(self.last)
-        self.slots += 1
-
-    def finish(self) -> Path:
-        if self.t0 is not None:  # hold the last frame up to "now"
-            self._fill_to(int((time.time() * 1000 - self.wall0) * self.fps / 1000))
-        self.proc.stdin.close()
-        err = self.proc.stderr.read().decode()
-        if self.proc.wait() != 0 or self.last is None:
-            raise RuntimeError(f"ffmpeg failed for {self.dst}: {err.strip() or 'no frames captured'}")
-        return self.dst
-
-    def abort(self) -> None:
-        self.proc.kill()
-        self.dst.unlink(missing_ok=True)
+# True when the element at (x, y) is the target or inside it.
+_HIT_TEST_JS = "(e, [x, y]) => { const t = document.elementFromPoint(x, y); return !!t && (t === e || e.contains(t)); }"
 
 
 class Recorder:
@@ -156,41 +49,63 @@ class Recorder:
 
     def __init__(self, name: str, out_dir: str | Path, *, topic: str | None = None, width: int = 1440,
                  height: int = 810, channel: str | None = "chrome", glide_steps: int = 25, slow: float = 1.0,
-                 fps: int = 30, crf: int = 20, timeout_ms: int = 10_000, badge: bool = True):
+                 fps: int = 30, crf: int = 20, timeout_ms: int = 10_000, badge: bool = True,
+                 popups: bool = False, native: bool | None = None, dialogs: str | None = "dismiss",
+                 blur: Iterable[str] = (), context_options: dict | None = None,
+                 launch_options: dict | None = None, stills: bool = True):
+        if dialogs not in DIALOG_ACTIONS:
+            raise ValueError(f"dialogs must be one of {DIALOG_ACTIONS}, not {dialogs!r}")
         self.name = name
         self.out_dir = Path(out_dir)
         self.topic = topic
         self.size = {"width": width, "height": height}
-        self.channel = channel          # "chrome" = installed Google Chrome; None = bundled Chromium
+        self.channel = channel          # "chrome" = installed Google Chrome; None = Playwright's own build
         self.glide_steps = glide_steps  # pointer moves in 25 steps ≈ a smooth 0.4 s glide
         self.slow = slow                # multiply every pause (1.5 = calmer video)
         self.fps = fps
         self.crf = crf                  # 18 = near-lossless, 20 = sharp UI text, 28 = small file
         self.timeout_ms = timeout_ms    # a missing element fails fast instead of Playwright's 30 s
         self.badge = badge
+        self.popups = popups            # the flow opens a new tab or window
+        self.native = hasattr(Page, "screencast") if native is None else native
+        self.dialog_action = dialogs    # how native alert/confirm/prompt are answered; None = leave to the flow
+        self.dialogs: list[str] = []    # every dialog message, in order
+        self.blur_selectors = [blur] if isinstance(blur, str) else list(blur)
+        self.context_options = context_options or {}
+        self.launch_options = launch_options or {}
         self.mp4_path: Path | None = None
-        self.native = hasattr(Page, "screencast")  # Playwright >= 1.59
+        stem = video_name(name, topic)[:-len(".mp4")]
+        self.stills_dir: Path | None = self.out_dir / f"{stem}_stills" if stills else None
         self._pos = (width / 2, height / 2)
-        self._encoder: _FrameEncoder | None = None
+        self._encoder: FrameEncoder | None = None
+        self._caption = ""
+        self._cutting = False
+        self._stills: list[tuple[str, str]] = []  # (file name, caption)
 
     # ── lifecycle ────────────────────────────────────────────────
     def __enter__(self) -> "Recorder":
         require_ffmpeg()
         self.out_dir.mkdir(parents=True, exist_ok=True)
+        if self.stills_dir:
+            shutil.rmtree(self.stills_dir, ignore_errors=True)
+            self.stills_dir.mkdir()
         self._pw = sync_playwright().start()
         try:
-            kwargs = {"channel": self.channel} if self.channel else {}
-            self.browser = self._pw.chromium.launch(**kwargs)
-            ctx_kwargs: dict = {"viewport": self.size}
+            self.browser = self._pw.chromium.launch(
+                **launch_kwargs(self.channel, popups=self.popups, launch_options=self.launch_options))
+            raw = None
             if not self.native:
-                self._raw = self.out_dir / f"_{self.name}_raw"
-                shutil.rmtree(self._raw, ignore_errors=True)
-                ctx_kwargs.update(record_video_dir=str(self._raw), record_video_size=self.size)
-            self.ctx = self.browser.new_context(**ctx_kwargs)
+                self._raw = raw = self.out_dir / f"_{self.name}_raw"
+                shutil.rmtree(raw, ignore_errors=True)
+            self.ctx = self.browser.new_context(
+                **context_kwargs(self.size, raw_dir=raw, context_options=self.context_options))
             self.ctx.set_default_timeout(self.timeout_ms)
+            if self.dialog_action:
+                self.ctx.on("dialog", self._on_dialog)
             if self.badge:
                 color = BADGE_COLORS.get(self.name.lower(), "#1f2937")
-                self.ctx.add_init_script(f"window.__recBadgeInit = [{self.name.upper()!r}, {color!r}];")
+                self.ctx.add_init_script(f"window.__recBadgeInit = {json.dumps([self.name.upper(), color])};")
+            self.ctx.add_init_script(f"window.__recBlurInit = {json.dumps(self.blur_selectors)};")
             self.ctx.add_init_script(OVERLAY_JS)
             self.page: Page = self.ctx.new_page()
         except Exception:
@@ -199,21 +114,18 @@ class Recorder:
         return self
 
     def __exit__(self, exc_type, *_exc) -> None:
-        dst = self.out_dir / video_name(self.name, self.topic)
-        video = None if self.native else self.page.video
-        raw: Path | None = None
+        failed = exc_type is not None
         try:
-            if self._encoder is not None:
-                self.page.screencast.stop()
-            self.ctx.close()  # flushes the fallback .webm
-            raw = Path(video.path()) if video else None  # must be read before stop()
-            self.browser.close()
-        finally:
-            self._pw.stop()
-        if exc_type is not None:
-            if self._encoder is not None:
-                self._encoder.abort()
+            if not failed:
+                self._save_still()
+            raw = self._close(quiet=failed)
+        except BaseException:
+            self._abort_encoder()
+            raise
+        if failed:
+            self._abort_encoder()
             return
+        dst = self.out_dir / video_name(self.name, self.topic)
         if self._encoder is not None:
             self.mp4_path = self._encoder.finish()
         elif raw:
@@ -221,19 +133,91 @@ class Recorder:
             shutil.rmtree(self._raw, ignore_errors=True)
         if self.mp4_path:
             report_size(self.mp4_path)
+        self._write_captions()
 
-    def _start_capture(self) -> None:
-        """Start after the first page has loaded, so the video has no blank start."""
+    def _close(self, *, quiet: bool) -> Path | None:
+        """Stop capture and close the browser; return the fallback WebM, if any.
+        ``quiet`` swallows teardown errors, so a failed flow's own error surfaces."""
+        video = None if self.native else self.page.video
+        raw: Path | None = None
+        try:
+            with (contextlib.suppress(Exception) if quiet else contextlib.nullcontext()):
+                if self._encoder is not None:
+                    self.page.screencast.stop()
+                self.ctx.close()  # flushes the fallback .webm
+                raw = Path(video.path()) if video else None  # must be read before stop()
+                self.browser.close()
+        finally:
+            self._pw.stop()
+        return raw
+
+    def _abort_encoder(self) -> None:
+        if self._encoder is not None:
+            self._encoder.abort()
+
+    # ── capture ──────────────────────────────────────────────────
+    def start_capture(self) -> None:
+        """Start the video now. ``goto`` does this on its own unless ``capture=False``."""
         if not self.native or self._encoder is not None:
             return
-        self._encoder = _FrameEncoder(self.out_dir / video_name(self.name, self.topic), self.fps, self.crf)
+        self._encoder = FrameEncoder(self.out_dir / video_name(self.name, self.topic), self.fps, self.crf)
         self.page.screencast.start(on_frame=self._encoder.on_frame, size=self.size, quality=90)
+
+    _start_capture = start_capture  # old name, kept for flow scripts that call it
+
+    @contextmanager
+    def cut(self) -> Iterator[None]:
+        """Leave the block's time out of the video: a slow load, a long wait.
+        Caption it, e.g. "(loading time cut from the video)"."""
+        if not self.native:
+            raise RuntimeError("cut() needs screencast capture (Playwright >= 1.59, native=True); "
+                               "this take records with the video fallback")
+        if self._encoder is None:  # nothing recorded yet, so nothing to cut
+            yield
+            return
+        if self._cutting:
+            raise RuntimeError("cut() blocks cannot be nested")
+        self._cutting = True
+        self.page.screencast.stop()
+        started = time.time()
+        done = False
+        try:
+            yield
+            done = True
+        finally:
+            self._cutting = False
+            self._encoder.skip((time.time() - started) * 1000)
+            # if the block failed, its error matters more than a failed restart
+            with (contextlib.nullcontext() if done else contextlib.suppress(Exception)):
+                self.page.screencast.start(on_frame=self._encoder.on_frame, size=self.size, quality=90)
 
     # ── narration ────────────────────────────────────────────────
     def caption(self, text: str, *, top: bool = False) -> None:
         """Narration bar. Use ``top=True`` when the thing you point at sits at
-        the bottom of the screen, so the bar does not cover it."""
+        the bottom of the screen, so the bar does not cover it. Each new caption
+        saves a still of the previous one's last frame for the frame check."""
+        self._save_still()
+        self._caption = text
         self.page.evaluate("([t, top]) => window.__recCaption && window.__recCaption(t, top)", [text, top])
+
+    def show(self, target: str | Locator, caption: str, *, hold: float = 4.0, value: str | None = None,
+             top: bool = False) -> None:
+        """Check the evidence, then claim it: wait until ``target`` is visible
+        (and, with ``value``, until the field holds exactly that), point at it,
+        caption it and hold. Missing evidence fails the take instead of
+        recording a caption that lies."""
+        loc = self._target(target)
+        try:
+            loc.wait_for(state="visible")
+        except PlaywrightTimeoutError as e:
+            raise RuntimeError(f"evidence not visible after {self.timeout_ms} ms: {target} "
+                               f"(caption: {caption!r})") from e
+        if value is not None:
+            self._wait_for_value(loc, value, caption)
+        self._end_caption()  # its still must show the pointer where that caption left it
+        self.move_to(loc)
+        self.caption(caption, top=top)
+        self.pause(hold)
 
     def keys_reset(self) -> None:
         self.page.evaluate("() => window.__recKeysReset && window.__recKeysReset()")
@@ -242,11 +226,28 @@ class Recorder:
         # wait_for_timeout keeps Playwright pumping events; time.sleep would drop screencast frames
         self.page.wait_for_timeout(seconds * self.slow * 1000)
 
+    @property
+    def dialog_box(self) -> Locator:
+        """The on-page box that shows the last native dialog's message."""
+        return self.page.locator("#__rec_dialog")
+
+    def blur(self, selector: str) -> None:
+        """Blur every element matching a CSS selector, now and after reloads."""
+        self.blur_selectors.append(selector)
+        self.ctx.add_init_script(f"window.__recBlurInit = (window.__recBlurInit || []).concat({json.dumps([selector])});")
+        self.page.evaluate("s => window.__recAddBlur && window.__recAddBlur(s)", selector)
+
     # ── input (always real events) ───────────────────────────────
-    def goto(self, url: str) -> None:
+    def goto(self, url: str, *, capture: bool = True) -> None:
+        """Open ``url``. ``capture=False`` keeps the camera off (log in, wait for
+        data), then call ``start_capture()`` on a ready screen."""
+        if not capture and not self.native:
+            raise RuntimeError("goto(capture=False) needs screencast capture (Playwright >= 1.59, native=True); "
+                               "the video fallback records from the first page on")
         self.page.goto(url)
         self.page.mouse.move(*self._pos)
-        self._start_capture()
+        if capture:
+            self.start_capture()
 
     def _target(self, target: str | Locator) -> Locator:
         # A video only needs *a* visible match; strict mode would abort the take.
@@ -304,9 +305,53 @@ class Recorder:
             self.move_to(over)
         self.page.mouse.wheel(dx, dy)
 
+    # ── internals ────────────────────────────────────────────────
+    def _on_dialog(self, dialog: Dialog) -> None:
+        leaving = dialog.type == "beforeunload"  # "leave this page?": always leave, or the flow hangs
+        if not leaving:
+            self.dialogs.append(dialog.message)
+        try:
+            dialog.accept() if leaving or self.dialog_action == "accept" else dialog.dismiss()
+        except Exception as e:  # a flow's own page.on("dialog") handler got there first
+            if "already handled" not in str(e):
+                raise
 
-# True when the element at (x, y) is the target or inside it.
-_HIT_TEST_JS = "(e, [x, y]) => { const t = document.elementFromPoint(x, y); return !!t && (t === e || e.contains(t)); }"
+    def _wait_for_value(self, loc: Locator, value: str, caption: str) -> None:
+        deadline = time.time() + self.timeout_ms / 1000
+        actual = loc.input_value()
+        while actual != value and time.time() < deadline:
+            self.page.wait_for_timeout(100)
+            actual = loc.input_value()
+        if actual != value:
+            raise RuntimeError(f"evidence shows {actual!r}, expected {value!r}: {loc} (caption: {caption!r})")
+
+    def _end_caption(self) -> None:
+        """Save the still of the showing caption now; the bar stays on screen until the next one."""
+        self._save_still()
+        self._caption = ""
+
+    def _save_still(self) -> None:
+        """Keep the last frame of the caption that is ending, for the frame check."""
+        if not self.stills_dir or not self._caption:
+            return
+        path = self.stills_dir / f"{len(self._stills) + 1:02d}.jpg"
+        if self._encoder is not None:
+            saved = self._encoder.snapshot(path)
+        elif not self.native:
+            self.page.screenshot(path=str(path), type="jpeg", quality=85)
+            saved = path
+        else:
+            saved = None  # the camera is not on yet
+        if saved:
+            self._stills.append((path.name, self._caption))
+
+    def _write_captions(self) -> None:
+        if not self.stills_dir:
+            return
+        lines = "".join(f"{name}\t{text}\n" for name, text in self._stills)
+        (self.stills_dir / "captions.txt").write_text(lines, encoding="utf-8")
+        if self._stills:
+            print(f"{self.stills_dir}  {len(self._stills)} caption stills", file=sys.stderr)
 
 
 def to_mp4(src: Path, dst: Path, *, crf: int = 20) -> Path:
