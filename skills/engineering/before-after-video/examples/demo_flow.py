@@ -44,13 +44,16 @@ with Recorder(args.mode, args.out_dir, topic=args.topic,
     r.caption(f"{L}: type a discount over 100% and press Save")
     r.type("150")
     r.pause(1)
-    r.click(p.get_by_role("button", name="Save"))
+    save = p.get_by_role("button", name="Save")
 
     # r.show checks that the evidence is on screen before the caption claims it.
     if args.mode == "before":
-        r.show(r.dialog_box, f"BEFORE: a browser alert says '{r.dialogs[-1]}'", hold=3)
+        with r.expect_dialog() as alert:  # waits for the alert, so the caption quotes the right one
+            r.click(save)
+        r.show(r.dialog_box, f"BEFORE: a browser alert says '{alert.message}'", hold=3)
         r.show(discount, "BEFORE: and the typed 150 is gone", value="", hold=3.5)
     else:
+        r.click(save)
         r.show(p.get_by_text("Discount must be 0–100%"), "AFTER: an inline message explains the limit", hold=3)
         r.show(discount, "AFTER: the typed value stays, so it is easy to fix", value="150", hold=2.5)
         r.click(discount)

@@ -122,10 +122,14 @@ class FrameEncoder:
         except OSError as e:
             self.broken = self.broken or e
         err = self.proc.stderr.read().decode(errors="replace")
+        self.proc.stderr.close()
         code = self.proc.wait()
         if code != 0 or self.last is None or self.broken is not None:
             self.dst.unlink(missing_ok=True)
-            reason = err.strip() or (str(self.broken) if self.broken else "no frames captured")
+            if self.last is None:
+                reason = "no frames captured: the take ended before the browser sent a frame"
+            else:
+                reason = err.strip() or str(self.broken)
             raise RuntimeError(f"ffmpeg failed for {self.dst}: {reason}")
         return self.dst
 

@@ -38,7 +38,7 @@ The ClickUp MCP cannot attach a file to a comment: `mcp__clickup__clickup_reques
    - If the comment has replies, click its replies link: `[class*=_repliesText_]`, the "N replies" text.
    - If it has none, hover the comment and click the reply arrow in its toolbar.
    - A second composer appears.
-3. Set `BAR` to the reply composer: `[...document.querySelectorAll('.comment-bar-root')].find(b => (b.querySelector('[contenteditable=true]')?.getAttribute('data-placeholder') || '').startsWith('Reply'))`. Then run steps 2–6 inside that `BAR`.
+3. Set `BAR` to the reply composer: `[...document.querySelectorAll('.comment-bar-root')].find(b => (b.querySelector('[contenteditable=true]')?.getAttribute('data-placeholder') || '').startsWith('Reply'))`. That placeholder is for ClickUp in English. In another language, read the placeholder with `read_page` and match that. Then run steps 2–6 inside that `BAR`.
 4. Check that the thread has one more reply, and that no new top-level comment appeared.
 
 ## Fallback

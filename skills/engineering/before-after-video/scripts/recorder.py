@@ -21,10 +21,12 @@ import shutil
 import sys
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
 from playwright.sync_api import Dialog, Locator, Page, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from encoder import FrameEncoder
@@ -35,19 +37,31 @@ _FrameEncoder = FrameEncoder  # old name, kept for flow scripts that import it
 OVERLAY_JS = (Path(__file__).with_name("overlay.js")).read_text(encoding="utf-8")
 BADGE_COLORS = {"before": "#b91c1c", "after": "#15803d"}  # red = old, green = new
 DIALOG_ACTIONS = ("dismiss", "accept", None)
-
-def _page_answers_dialogs(dialog: Dialog) -> bool:
-    """True when the flow added its own ``page.on("dialog")`` handler. The context
-    handler runs first, so answering here would silently override the flow."""
-    try:
-        page = dialog.page
-        return bool(page and page._impl_obj.listeners("dialog"))
-    except Exception:  # private Playwright API: if it moves, answer as before
-        return False
-
+MAX_EVIDENCE_MATCHES = 50  # show() looks at this many matches for one the app itself drew
 
 # True when the element at (x, y) is the target or inside it.
 _HIT_TEST_JS = "(e, [x, y]) => { const t = document.elementFromPoint(x, y); return !!t && (t === e || e.contains(t)); }"
+# The app drew it: not the recorder's own key box, caption or badge (its dialog box counts as evidence).
+_APP_ELEMENT_JS = "e => e.id === '__rec_dialog' || !e.closest('#__rec_root')"
+_IN_TOP_PAGE_JS = "e => window.top === window"
+
+
+@dataclass
+class DialogMessage:
+    """Filled in by ``Recorder.expect_dialog`` when its block ends."""
+    message: str = ""
+
+
+def _flow_answers_dialogs(dialog: Dialog, ctx) -> bool:
+    """True when the flow has its own ``page.on("dialog")`` or ``ctx.on("dialog")``
+    handler. The recorder's handler runs first, so answering would override it."""
+    try:
+        page = dialog.page
+        if page and page._impl_obj.listeners("dialog"):
+            return True
+        return len(ctx._impl_obj.listeners("dialog")) > 1  # the recorder's own handler is one
+    except Exception:  # private Playwright API: if it moves, answer as before
+        return False
 
 
 class Recorder:
@@ -88,14 +102,18 @@ class Recorder:
         self.stills_dir: Path | None = self.out_dir / f"{stem}_stills" if stills else None
         self._pos = (width / 2, height / 2)
         self._encoder: FrameEncoder | None = None
-        self._caption = ""
+        self._caption = ""               # the caption whose still is still to be saved
+        self._on_screen = ("", False)    # the caption bar as shown: (text, top), restored after reloads
         self._cutting = False
+        self._start_after_cut = False
+        self._in_frame = False           # the pointer's last target sits inside a frame
         self._stills: list[tuple[str, str]] = []  # (file name, caption)
 
     # ── lifecycle ────────────────────────────────────────────────
     def __enter__(self) -> "Recorder":
         require_ffmpeg()
         self.out_dir.mkdir(parents=True, exist_ok=True)
+        (self.out_dir / video_name(self.name, self.topic)).unlink(missing_ok=True)  # never leave an old take
         if self.stills_dir:
             shutil.rmtree(self.stills_dir, ignore_errors=True)
             self.stills_dir.mkdir()
@@ -112,6 +130,7 @@ class Recorder:
             self.ctx.set_default_timeout(self.timeout_ms)
             if self.dialog_action:
                 self.ctx.on("dialog", self._on_dialog)
+            self.ctx.expose_binding("__recCaptionNow", lambda _source: list(self._on_screen))
             if self.badge:
                 color = BADGE_COLORS.get(self.name.lower(), "#1f2937")
                 self.ctx.add_init_script(f"window.__recBadgeInit = {json.dumps([self.name.upper(), color])};")
@@ -141,6 +160,8 @@ class Recorder:
             if still_error is not None:
                 raise still_error
             return
+        if self.native and self._encoder is None:
+            raise RuntimeError("the take recorded nothing: call r.start_capture() after r.goto(url, capture=False)")
         dst = self.out_dir / video_name(self.name, self.topic)
         if self._encoder is not None:
             self.mp4_path = self._encoder.finish()
@@ -176,6 +197,9 @@ class Recorder:
         """Start the video now. ``goto`` does this on its own unless ``capture=False``."""
         if not self.native or self._encoder is not None:
             return
+        if self._cutting:  # inside cut(): start when the block ends, so its wait stays out
+            self._start_after_cut = True
+            return
         self._encoder = FrameEncoder(self.out_dir / video_name(self.name, self.topic), self.fps, self.crf)
         self.page.screencast.start(on_frame=self._encoder.on_frame, size=self.size, quality=90)
 
@@ -188,11 +212,18 @@ class Recorder:
         if not self.native:
             raise RuntimeError("cut() needs screencast capture (Playwright >= 1.59, native=True); "
                                "this take records with the video fallback")
-        if self._encoder is None:  # nothing recorded yet, so nothing to cut
-            yield
-            return
         if self._cutting:
             raise RuntimeError("cut() blocks cannot be nested")
+        if self._encoder is None:  # nothing recorded yet: a goto() inside starts capture after the block
+            self._cutting = True
+            try:
+                yield
+            finally:
+                self._cutting = False
+            if self._start_after_cut:
+                self._start_after_cut = False
+                self.start_capture()
+            return
         self._cutting = True
         self.page.screencast.stop()
         started = time.time()
@@ -214,6 +245,7 @@ class Recorder:
         saves a still of the previous one's last frame for the frame check."""
         self._save_still()
         self._caption = text
+        self._on_screen = (text, top)
         self.page.evaluate("([t, top]) => window.__recCaption && window.__recCaption(t, top)", [text, top])
 
     def show(self, target: str | Locator, caption: str, *, hold: float = 4.0, value: str | None = None,
@@ -221,13 +253,9 @@ class Recorder:
         """Check the evidence, then claim it: wait until ``target`` is visible
         (and, with ``value``, until the field holds exactly that), point at it,
         caption it and hold. Missing evidence fails the take instead of
-        recording a caption that lies."""
-        loc = self._target(target)
-        try:
-            loc.wait_for(state="visible")
-        except PlaywrightTimeoutError as e:
-            raise RuntimeError(f"evidence not visible after {self.timeout_ms} ms: {target} "
-                               f"(caption: {caption!r})") from e
+        recording a caption that lies. Text in the recorder's own key box or
+        caption bar never counts as evidence."""
+        loc = self._evidence(target, caption)
         if value is not None:
             self._wait_for_value(loc, value, caption)
         self._end_caption()  # its still must show the pointer where that caption left it
@@ -244,14 +272,33 @@ class Recorder:
 
     @property
     def dialog_box(self) -> Locator:
-        """The on-page box that shows the last native dialog's message."""
+        """The on-page box that shows the last native dialog's message, until the next click or key."""
         return self.page.locator("#__rec_dialog")
 
+    @contextmanager
+    def expect_dialog(self) -> Iterator[DialogMessage]:
+        """Wait, after the block, for a native dialog the block triggered:
+        ``with r.expect_dialog() as alert: r.click(save)``, then use ``alert.message``."""
+        start = len(self.dialogs)
+        found = DialogMessage()
+        yield found
+        deadline = time.time() + self.timeout_ms / 1000
+        while len(self.dialogs) == start:
+            if time.time() >= deadline:
+                raise RuntimeError(f"no browser dialog appeared within {self.timeout_ms} ms"
+                                   + (" (dialogs=None records none)" if self.dialog_action is None else ""))
+            self.page.wait_for_timeout(100)
+        found.message = self.dialogs[start]
+
     def blur(self, selector: str) -> None:
-        """Blur every element matching a CSS selector, now and after reloads."""
-        self.blur_selectors.append(selector)
-        self.ctx.add_init_script(f"window.__recBlurInit = (window.__recBlurInit || []).concat({json.dumps([selector])});")
-        self.page.evaluate("s => window.__recAddBlur && window.__recAddBlur(s)", selector)
+        """Blur every element matching a CSS selector, in every frame, now and after reloads."""
+        self.blur_selectors = [*self.blur_selectors, selector]
+        sel = json.dumps(selector)
+        self.ctx.add_init_script(f"window.__recBlurInit = (window.__recBlurInit || []).concat([{sel}]);"
+                                 f"if (window.__recAddBlur) window.__recAddBlur({sel});")
+        for frame in self.page.frames:
+            with contextlib.suppress(PlaywrightError):  # a frame that is gone needs no blur
+                frame.evaluate("s => window.__recAddBlur && window.__recAddBlur(s)", selector)
 
     # ── input (always real events) ───────────────────────────────
     def goto(self, url: str, *, capture: bool = True) -> None:
@@ -280,21 +327,40 @@ class Recorder:
         if box is None:
             raise RuntimeError(f"not visible: {target}")
         x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        in_top_page = loc.evaluate(_IN_TOP_PAGE_JS)
         # scroll_into_view_if_needed leaves a target alone when it counts as in
         # view, even if a sticky header covers it: the click then lands on the
         # header and typing goes nowhere, silently. Re-centre when the point is
         # not the target (the recorder's own overlays are pointer-events:none).
-        if not loc.evaluate(_HIT_TEST_JS, [x, y]):
+        # Inside a frame the page coordinates do not fit the frame's document.
+        if in_top_page and not loc.evaluate(_HIT_TEST_JS, [x, y]):
             loc.evaluate("e => e.scrollIntoView({block: 'center', inline: 'center'})")
             box = loc.bounding_box() or box
             x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
-        self.page.mouse.move(x, y, steps=self.glide_steps)
+        if in_top_page and not self._in_frame:
+            self.page.mouse.move(x, y, steps=self.glide_steps)  # the page's own mouse events move the pointer
+        else:
+            self._glide_drawn(x, y)
+        self._in_frame = not in_top_page
         self._pos = (x, y)
         return x, y
+
+    def _glide_drawn(self, x: float, y: float) -> None:
+        """Glide while drawing the pointer from here: a frame's mouse events never reach the top page."""
+        x0, y0 = self._pos
+        for i in range(1, self.glide_steps + 1):
+            xi, yi = x0 + (x - x0) * i / self.glide_steps, y0 + (y - y0) * i / self.glide_steps
+            self.page.mouse.move(xi, yi)
+            self._draw_pointer(xi, yi)
+
+    def _draw_pointer(self, x: float, y: float, *, down: bool = False) -> None:
+        self.page.evaluate("([x, y, d]) => window.__recPointerAt && window.__recPointerAt(x, y, d)", [x, y, down])
 
     def click(self, target: str | Locator, *, hover: float = 0.4) -> None:
         self.move_to(target)
         self.pause(hover)  # a short hover lets the viewer see where the click lands
+        if self._in_frame:
+            self._draw_pointer(*self._pos, down=True)  # the click ring; the frame's mousedown never reaches the top page
         self.page.mouse.click(*self._pos)
 
     def type(self, text: str, *, delay_ms: int = 180, secret: bool = False) -> None:
@@ -326,13 +392,27 @@ class Recorder:
         leaving = dialog.type == "beforeunload"  # "leave this page?": always leave, or the flow hangs
         if not leaving:
             self.dialogs.append(dialog.message)
-        if _page_answers_dialogs(dialog):  # the flow's own page.on("dialog") handler decides
+        if _flow_answers_dialogs(dialog, self.ctx):  # the flow's own dialog handler decides
             return
         try:
             dialog.accept() if leaving or self.dialog_action == "accept" else dialog.dismiss()
         except Exception as e:  # a flow's own page.on("dialog") handler got there first
             if "already handled" not in str(e):
                 raise
+
+    def _evidence(self, target: str | Locator, caption: str) -> Locator:
+        """The first visible match the app drew; waits up to the timeout."""
+        loc = self.page.locator(target) if isinstance(target, str) else target
+        deadline = time.time() + self.timeout_ms / 1000
+        while True:
+            for i in range(min(loc.count(), MAX_EVIDENCE_MATCHES)):
+                match = loc.nth(i)
+                with contextlib.suppress(PlaywrightError):  # it went away between count() and now
+                    if match.is_visible() and match.evaluate(_APP_ELEMENT_JS):
+                        return match
+            if time.time() >= deadline:
+                raise RuntimeError(f"evidence not visible after {self.timeout_ms} ms: {target} (caption: {caption!r})")
+            self.page.wait_for_timeout(100)
 
     def _wait_for_value(self, loc: Locator, value: str, caption: str) -> None:
         deadline = time.time() + self.timeout_ms / 1000

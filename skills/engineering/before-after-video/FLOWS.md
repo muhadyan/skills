@@ -9,6 +9,7 @@ Find the row that matches what the screen does. Each row says what to put in the
 | needs a slow first load or a login before the part worth showing | `r.goto(url, capture=False)`, log in, then wait for the data (`locator.wait_for(timeout=60_000)`) and call `r.start_capture()`. The video opens on a ready screen. |
 | has a slow load or a long wait in the middle of the take (about 5 s or more) | `with r.cut(): p.reload(); locator.wait_for(timeout=60_000)`. The block's time is left out of the video. Caption it, for example "(loading time cut from the video)". |
 | keeps polling, so `wait_for_load_state("networkidle")` times out | Wait for the element that proves the state you want to film: `locator.wait_for()`. Never wait for `networkidle`. |
+| is a single-page app that routes by `#hash`, so no `load` event fires | Wait for the route: `p.wait_for_function("location.hash.startsWith('#orders')")`, then for an element on it. |
 | reloads or moves on right after Save | Wait for the saved value before the next step: `r.show(row.get_by_text("15%"), …)`. |
 | shows output that changes from run to run (AI answers, timestamps) | Use a caption that holds for every run ("an answer appears"). Do not quote the text. Check it in the still. |
 
@@ -17,9 +18,10 @@ Find the row that matches what the screen does. Each row says what to put in the
 | The flow… | Do this |
 |---|---|
 | opens a new tab (`target=_blank`, `window.open(url)`) | `Recorder(..., popups=True)`. In Google Chrome's headless mode, every frame after a new tab comes out zoomed and cropped. `popups=True` uses Playwright's headless shell, which keeps frames whole (install it in step 0). The video shows only the first page, never the new tab. After you close the tab, call `p.bring_to_front()`. |
-| opens a PDF in a new tab | To show the PDF, skip the new tab. Point at the link, then open it in the same page with the default Chrome, which shows its PDF viewer: `r.move_to(link)`, then `r.goto(link.get_attribute("href"))`. If the click itself must be on video, use `popups=True` and do not wait for the PDF tab to load: the headless shell has no PDF viewer, so that tab never loads. Pause, then close it. |
-| shows `alert`, `confirm` or `prompt` | Nothing to set up. The recorder draws the message in a "Browser alert" box and dismisses the dialog. Use `dialogs="accept"` when the flow must click OK on a `confirm()`. Point at it with `r.show(r.dialog_box, f"BEFORE: the alert says '{r.dialogs[-1]}'")`. |
+| opens a PDF in a new tab | To show the PDF, skip the new tab. Point at the link, then open it in the same page with the default Chrome, which shows its PDF viewer: `r.move_to(link)`, then `r.goto(link.evaluate("a => a.href"))` (the full URL, also for a relative link). If the click itself must be on video, use `popups=True` and do not wait for the PDF tab to load: the headless shell has no PDF viewer, so that tab never loads. Pause, then close it. |
+| shows `alert`, `confirm` or `prompt` | The recorder draws the message in a "Browser alert" box, which stays until the next click or key, and dismisses the dialog. Use `dialogs="accept"` when the flow must click OK on a `confirm()`. Wait for it, then quote it: `with r.expect_dialog() as alert: r.click(save)`, then `r.show(r.dialog_box, f"BEFORE: the alert says '{alert.message}'")`. |
 | needs a language, time zone or HTTP login | `Recorder(..., context_options={"locale": "de-DE", "timezone_id": "Europe/Berlin", "http_credentials": {...}})`. Any `browser.new_context` option works here. Browser start options go in `launch_options`. |
+| works inside a frame (a payment form, an embedded editor) | Locate through the frame: `p.frame_locator("iframe#pay").locator("#card")`. `r.click` and `r.type` work there, and the pointer follows. The key box shows typing only in frames from the same origin as the page. |
 | types into a date or time input | Typed digits follow the browser locale. Set `locale` in `context_options`, or `r.move_to(input)` and then `input.fill("2026-12-01")`. |
 | is redirected by an app-wide gate (a banner, a "finish setup" screen, a forced tour) | Before the first `goto`, keep the gate's request away: `p.route("**/api/<gate-endpoint>**", lambda route: route.fulfill(status=404, body="{}"))`. Choose a reply the app treats as "nothing to show". Check that it changes no data. |
 | shows different lists for different user roles | Pick the test user's role first, then write the locators. Open the tab or filter that shows the rows (an "All" tab, for example) before you point at them. |
@@ -37,4 +39,4 @@ Find the row that matches what the screen does. Each row says what to put in the
 - **A single key matters** (a minus sign, a decimal point). Type it alone, pause, and caption the result. Then type the rest.
 - **The evidence is at the bottom of the screen.** Use `r.show(..., top=True)` so the caption bar does not cover it.
 - **The evidence is in an input field.** Use `r.show(field, …, value="150")`. The take fails if the field holds anything else.
-- **The screen changes.** Set a new caption before each screen change, or the old caption stays on the new screen.
+- **The screen changes.** A caption stays on until the next one, also across reloads. Set a new caption before each screen change, or the old caption describes the new screen.
