@@ -16,7 +16,8 @@ Find the row that matches what the screen does. Each row says what to put in the
 
 | The flow… | Do this |
 |---|---|
-| opens a new tab (`target=_blank`, `window.open(url)`) | `Recorder(..., popups=True)`. In Google Chrome's headless mode, every frame after a new tab comes out zoomed and cropped. `popups=True` uses Playwright's headless shell, which keeps frames whole (install it in step 0). After you close the popup, call `p.bring_to_front()`. |
+| opens a new tab (`target=_blank`, `window.open(url)`) | `Recorder(..., popups=True)`. In Google Chrome's headless mode, every frame after a new tab comes out zoomed and cropped. `popups=True` uses Playwright's headless shell, which keeps frames whole (install it in step 0). The video shows only the first page, never the new tab. After you close the tab, call `p.bring_to_front()`. |
+| opens a PDF in a new tab | To show the PDF, skip the new tab. Point at the link, then open it in the same page with the default Chrome, which shows its PDF viewer: `r.move_to(link)`, then `r.goto(link.get_attribute("href"))`. If the click itself must be on video, use `popups=True` and do not wait for the PDF tab to load: the headless shell has no PDF viewer, so that tab never loads. Pause, then close it. |
 | shows `alert`, `confirm` or `prompt` | Nothing to set up. The recorder draws the message in a "Browser alert" box and dismisses the dialog. Use `dialogs="accept"` when the flow must click OK on a `confirm()`. Point at it with `r.show(r.dialog_box, f"BEFORE: the alert says '{r.dialogs[-1]}'")`. |
 | needs a language, time zone or HTTP login | `Recorder(..., context_options={"locale": "de-DE", "timezone_id": "Europe/Berlin", "http_credentials": {...}})`. Any `browser.new_context` option works here. Browser start options go in `launch_options`. |
 | types into a date or time input | Typed digits follow the browser locale. Set `locale` in `context_options`, or `r.move_to(input)` and then `input.fill("2026-12-01")`. |

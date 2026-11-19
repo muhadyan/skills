@@ -4,13 +4,19 @@
 (() => {
   if (window.__recOverlay) return; window.__recOverlay = true;
   window.__recSecret = false;
+  const isFrame = window.top !== window;
+  // The top page draws everything. A frame inside it reaches the top page's
+  // functions when both share an origin; otherwise it draws nothing.
+  const fromTop = (name) => {
+    try { return isFrame ? window.top[name] : window[name]; } catch (e) { return undefined; }
+  };
 
   // Native alert/confirm/prompt are never drawn in headless video. Draw a box
   // first; the native call then blocks until recorder.py resolves the dialog.
   for (const kind of ['alert', 'confirm', 'prompt']) {
     const native = window[kind];
     window[kind] = function (message, ...rest) {
-      try { if (window.__recDialog) window.__recDialog(kind, message); } catch (e) { /* never break the page */ }
+      try { const draw = fromTop('__recDialog'); if (draw) draw(kind, message); } catch (e) { /* never break the page */ }
       return native.call(window, message, ...rest);
     };
   }
@@ -25,6 +31,25 @@
   };
   if (window.HTMLDialogElement) HTMLDialogElement.prototype.showModal = relift(HTMLDialogElement.prototype.showModal);
   if (HTMLElement.prototype.showPopover) HTMLElement.prototype.showPopover = relift(HTMLElement.prototype.showPopover);
+
+  // Key presses: Python's secret=True flag lives on the top page.
+  const isSecret = (e) => !!fromTop('__recSecret') || (e.target && e.target.type === 'password');
+
+  if (isFrame) {
+    // A second pointer and badge inside each frame would show twice on video,
+    // so a frame only moves the top page's pointer and key box.
+    const offset = () => window.frameElement.getBoundingClientRect();
+    const forwardMouse = (e) => {
+      try { const b = offset(); fromTop('__recPointerAt')(e.clientX + b.left, e.clientY + b.top, e.type === 'mousedown'); }
+      catch (err) { /* cross-origin frame */ }
+    };
+    document.addEventListener('mousemove', forwardMouse, true);
+    document.addEventListener('mousedown', forwardMouse, true);
+    document.addEventListener('keydown', e => {
+      try { fromTop('__recKeyAt')(e.key, e.metaKey, e.ctrlKey, isSecret(e)); } catch (err) { /* cross-origin frame */ }
+    }, true);
+    return;
+  }
 
   const install = () => {
     const ptr = document.createElement('div');
@@ -73,36 +98,37 @@
     // popovers opened without script (popovertarget buttons) only announce themselves with a toggle event
     document.addEventListener('toggle', e => { if (e.target !== root && e.newState === 'open') window.__recLift(); }, true);
 
-    document.addEventListener('mousemove', e => {
-      ptr.style.transform = `translate(${e.clientX - 3}px, ${e.clientY - 2}px)`;
-    }, true);
-    document.addEventListener('mousedown', e => {
+    const movePointer = (x, y) => { ptr.style.transform = `translate(${x - 3}px, ${y - 2}px)`; };
+    const ring = (x, y) => {
       const r = document.createElement('div');
-      r.style.cssText = `position:fixed;left:${e.clientX - 18}px;top:${e.clientY - 18}px;width:36px;height:36px;`
+      r.style.cssText = `position:fixed;left:${x - 18}px;top:${y - 18}px;width:36px;height:36px;`
         + 'border-radius:50%;border:3px solid #ef4444;z-index:2147483646;pointer-events:none;'
         + 'transition:transform .45s ease-out,opacity .45s ease-out;transform:scale(.4);opacity:1';
       root.appendChild(r);  // inside the root, so the ring shows above modal dialogs too
       requestAnimationFrame(() => { r.style.transform = 'scale(1.4)'; r.style.opacity = '0'; });
       setTimeout(() => r.remove(), 500);
-    }, true);
+    };
+    document.addEventListener('mousemove', e => movePointer(e.clientX, e.clientY), true);
+    document.addEventListener('mousedown', e => ring(e.clientX, e.clientY), true);
+    window.__recPointerAt = (x, y, down) => { movePointer(x, y); if (down) ring(x, y); };
 
     let typed = '', hideTimer = 0;
-    document.addEventListener('keydown', e => {
-      if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock'].includes(e.key)) return;  // a modifier alone is no key press
-      // never show passwords or fields typed with secret=True on video
-      const secret = window.__recSecret || (e.target && e.target.type === 'password');
-      if (e.metaKey || e.ctrlKey) {
+    const showKey = (key, meta, ctrl, secret) => {
+      if (['Meta', 'Control', 'Alt', 'Shift', 'CapsLock'].includes(key)) return;  // a modifier alone is no key press
+      if (meta || ctrl) {
         typed = '';
-        keys.textContent = 'Keys pressed: ' + (e.metaKey ? '⌘' : 'Ctrl+') + e.key.toUpperCase();
-      } else if (e.key === 'Backspace') {
+        keys.textContent = 'Keys pressed: ' + (meta ? '⌘' : 'Ctrl+') + key.toUpperCase();
+      } else if (key === 'Backspace') {
         typed = typed.slice(0, -1); keys.textContent = 'Keys pressed: ' + typed + ' ⌫';
-      } else if (e.key.length === 1) {
-        typed += secret ? '•' : e.key; keys.textContent = 'Keys pressed: ' + typed;
+      } else if (key.length === 1) {
+        typed += secret ? '•' : key; keys.textContent = 'Keys pressed: ' + typed;  // never show secrets on video
       } else { return; }
       keys.style.display = 'block';
       clearTimeout(hideTimer);  // 6 s after the last key the box fades, so old keys don't linger
       hideTimer = setTimeout(() => { keys.style.display = 'none'; typed = ''; }, 6000);
-    }, true);
+    };
+    document.addEventListener('keydown', e => showKey(e.key, e.metaKey, e.ctrlKey, isSecret(e)), true);
+    window.__recKeyAt = showKey;
 
     let dialogTimer = 0;
     const titles = { alert: 'Browser alert', confirm: 'Browser confirm', prompt: 'Browser prompt' };

@@ -154,6 +154,25 @@ class E2ETest(TempDirCase):
     def test_a_flows_own_dialog_handler_keeps_its_answer(self):
         self.assertEqual(self.confirm_answer(own_handler=True), ("true", ["Discard changes?"]))
 
+    def test_frames_inside_the_page_get_no_second_overlay(self):
+        from recorder import Recorder
+        with Recorder("after", self.tmp, topic="frame") as r:
+            p = r.page
+            r.goto(self.url("after"))
+            p.evaluate("""() => { const f = document.createElement('iframe'); f.id = 'inner';
+              f.style.cssText = 'position:fixed;left:300px;top:400px;width:400px;height:200px';
+              f.srcdoc = '<button id=b style="margin:60px">in frame</button>'; document.body.append(f); }""")
+            button = p.frame_locator("#inner").locator("#b")
+            button.wait_for()
+            inner = p.frame(url="about:srcdoc")
+            self.assertIsNone(inner.evaluate("document.getElementById('__rec_badge')"))
+            x, y = r.move_to(button)
+            r.pause(0.2)
+            transform = p.evaluate("document.getElementById('__rec_ptr').style.transform")
+            px, py = (float(v) for v in transform[len("translate("):-1].replace("px", "").split(","))
+            self.assertAlmostEqual(px, x - 3, delta=3)  # the top page's pointer follows into the frame
+            self.assertAlmostEqual(py, y - 2, delta=3)
+
     def test_show_fails_loudly_when_evidence_is_missing(self):
         from recorder import Recorder
         with self.assertRaisesRegex(RuntimeError, "expected '999'"):
