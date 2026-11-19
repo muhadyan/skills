@@ -48,7 +48,7 @@ The scripts live in `${CLAUDE_SKILL_DIR}/scripts`. Outside Claude Code that vari
 
 4. **Make the side-by-side:** `python3 ${CLAUDE_SKILL_DIR}/scripts/compose.py OUT --topic <topic>`. It writes `OUT/<topic>_SIDE_BY_SIDE.mp4` and a contact sheet for each take (`OUT/<topic>_BEFORE_sheet.png`). Add `--gif` only when the user asks for a GIF (READMEs, email). Done when the MP4 path prints with its size.
 
-5. **Check every caption still** before you share. Each take writes `OUT/<topic>_<MODE>_stills/NN.jpg` (the last frame of each caption) and `captions.txt` (still name, tab, caption). Read every still next to its caption, then read both sheets. Done when every claim is visible in its still, the pointer is on the evidence, every frame is whole (the badge is in its corner), and no secret or personal data is on screen. If a still fails, fix the flow and record again from the data reset.
+5. **Check every caption still** before you share. Each take writes `OUT/<topic>_<MODE>_stills/NN.jpg` (for `r.show`, the frame at the end of its hold; for `r.caption`, the last frame before the next caption) and `captions.txt` (still name, tab, caption). Read every still next to its caption, then read both sheets. Done when every claim is visible in its still, the pointer is on the evidence, every frame is whole (the badge is in its corner), and no secret or personal data is on screen. If a still fails, fix the flow and record again from the data reset.
 
 6. **Deliver.** By default, only save the files. Copy `<topic>_BEFORE.mp4`, `<topic>_AFTER.mp4` and `<topic>_SIDE_BY_SIDE.mp4` to `~/Downloads/`, with `_v2`… for re-takes, and give the user the paths. Post only when the user names a place:
    - GitHub PR or issue → [share/github.md](share/github.md)

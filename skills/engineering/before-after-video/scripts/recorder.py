@@ -262,6 +262,7 @@ class Recorder:
         self.move_to(loc)
         self.caption(caption, top=top)
         self.pause(hold)
+        self._end_caption()  # the still is the evidence; the bar stays on screen until the next caption
 
     def keys_reset(self) -> None:
         self.page.evaluate("() => window.__recKeysReset && window.__recKeysReset()")
@@ -334,7 +335,8 @@ class Recorder:
         # not the target (the recorder's own overlays are pointer-events:none).
         # Inside a frame the page coordinates do not fit the frame's document.
         if in_top_page and not loc.evaluate(_HIT_TEST_JS, [x, y]):
-            loc.evaluate("e => e.scrollIntoView({block: 'center', inline: 'center'})")
+            # instant: with CSS scroll-behavior:smooth the box below would be read mid-scroll
+            loc.evaluate("e => e.scrollIntoView({block: 'center', inline: 'center', behavior: 'instant'})")
             box = loc.bounding_box() or box
             x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
         if in_top_page and not self._in_frame:
