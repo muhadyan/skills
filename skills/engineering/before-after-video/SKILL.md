@@ -12,7 +12,7 @@ The scripts live in `${CLAUDE_SKILL_DIR}/scripts`. Outside Claude Code that vari
 
 ## Steps
 
-0. **Check the tools.** Run `uv --version` and `ffmpeg -version`, and check that Google Chrome is installed. Without Chrome, or when the flow opens a new tab, also install Playwright's own browser: `uv run --with "playwright>=1.59" playwright install chromium-headless-shell`. Done when all of them are there.
+0. **Check the tools.** Run `uv --version` and `ffmpeg -version`, and check that Google Chrome is installed. Without Chrome, or when the flow opens a new tab, install Playwright's own browser: `uv run --with "playwright>=1.59" playwright install chromium-headless-shell`. Then pass `channel=None` to `Recorder` (without Chrome) or `popups=True` (new tab). Done when all of them are there.
 
 1. **Make the takes safe and repeatable.** Run the app locally.
    - Write a reset script that restores the start data, including rows a take deletes or adds, and prints a row count. Both takes start from it.
@@ -62,7 +62,7 @@ The scripts live in `${CLAUDE_SKILL_DIR}/scripts`. Outside Claude Code that vari
 - GitHub's free plan refuses videos over 10 MB. `recorder.py` and `compose.py` print each file's size. To shrink a video, record again with `Recorder(..., crf=26)` or compose with `--crf 26`.
 - `Recorder` uses the first match of a locator, so a text that appears twice does not stop the take. Check in the still that the pointer landed on the right one. A locator that matches nothing fails after 10 s with `not visible: …`.
 - A take that raises leaves no MP4. On the fallback path the raw WebM stays in `OUT/_<mode>_raw/`. Fix the flow and run it again from the data reset.
-- `Recorder` answers native dialogs itself. By default it dismisses them, as Playwright does. A "leave this page?" dialog is always accepted, so navigation cannot hang. Use `dialogs="accept"` to click OK on a `confirm()`. Read the messages from `r.dialogs`. If a flow must answer dialogs itself in its own `page.on("dialog")` handler, pass `dialogs=None`.
+- `Recorder` answers native dialogs itself. By default it dismisses them, as Playwright does. A "leave this page?" dialog is always accepted, so navigation cannot hang. Use `dialogs="accept"` to click OK on a `confirm()`. Read the messages from `r.dialogs`. If the flow adds its own `page.on("dialog")` handler, that handler answers, and the recorder only records the message.
 - Playwright's bundled browser often does not match the installed package (`Executable doesn't exist … playwright install`). `channel="chrome"`, the default, avoids this.
 - Run flows with plain `python`, not `python -I`. `-I` ignores `PYTHONPATH`, so `from recorder import Recorder` fails.
 - Stop the servers you started by PID or port (`kill <pid>`, `lsof -ti tcp:<port>`). Do not use `pkill -f <name>`: other sessions may run the same tools.

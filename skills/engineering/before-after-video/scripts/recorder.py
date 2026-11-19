@@ -36,6 +36,16 @@ OVERLAY_JS = (Path(__file__).with_name("overlay.js")).read_text(encoding="utf-8"
 BADGE_COLORS = {"before": "#b91c1c", "after": "#15803d"}  # red = old, green = new
 DIALOG_ACTIONS = ("dismiss", "accept", None)
 
+def _page_answers_dialogs(dialog: Dialog) -> bool:
+    """True when the flow added its own ``page.on("dialog")`` handler. The context
+    handler runs first, so answering here would silently override the flow."""
+    try:
+        page = dialog.page
+        return bool(page and page._impl_obj.listeners("dialog"))
+    except Exception:  # private Playwright API: if it moves, answer as before
+        return False
+
+
 # True when the element at (x, y) is the target or inside it.
 _HIT_TEST_JS = "(e, [x, y]) => { const t = document.elementFromPoint(x, y); return !!t && (t === e || e.contains(t)); }"
 
@@ -115,15 +125,21 @@ class Recorder:
 
     def __exit__(self, exc_type, *_exc) -> None:
         failed = exc_type is not None
-        try:
-            if not failed:
+        still_error: Exception | None = None
+        if not failed:
+            try:
                 self._save_still()
-            raw = self._close(quiet=failed)
+            except Exception as e:  # close the browser first, then report it
+                still_error = e
+        try:
+            raw = self._close(quiet=failed or still_error is not None)
         except BaseException:
             self._abort_encoder()
             raise
-        if failed:
+        if failed or still_error is not None:
             self._abort_encoder()
+            if still_error is not None:
+                raise still_error
             return
         dst = self.out_dir / video_name(self.name, self.topic)
         if self._encoder is not None:
@@ -310,6 +326,8 @@ class Recorder:
         leaving = dialog.type == "beforeunload"  # "leave this page?": always leave, or the flow hangs
         if not leaving:
             self.dialogs.append(dialog.message)
+        if _page_answers_dialogs(dialog):  # the flow's own page.on("dialog") handler decides
+            return
         try:
             dialog.accept() if leaving or self.dialog_action == "accept" else dialog.dismiss()
         except Exception as e:  # a flow's own page.on("dialog") handler got there first

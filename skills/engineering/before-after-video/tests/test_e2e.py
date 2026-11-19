@@ -23,6 +23,9 @@ except ImportError:
 
 APP = SKILL / "examples" / "demo-app"
 GREEN = (21, 128, 61)  # the AFTER badge, #15803d
+ASK_BUTTON = """() => { const b = document.createElement('button'); b.id = 'ask'; b.textContent = 'Ask';
+  b.onclick = () => { document.body.dataset.answer = String(confirm('Discard changes?')); };
+  document.querySelector('header').append(b); }"""
 
 
 class _QuietHandler(http.server.SimpleHTTPRequestHandler):
@@ -130,6 +133,26 @@ class E2ETest(TempDirCase):
         still = self.tmp / "seq_AFTER_stills" / "01.jpg"
         self.assertTrue(near(pixel(still, int(x) + 4, int(y) + 10), (17, 17, 17), tol=60),
                         "the first still shows the pointer somewhere else")
+
+    def confirm_answer(self, own_handler: bool = False, **kw) -> tuple:
+        from recorder import Recorder
+        with Recorder("after", self.tmp, topic="ask", **kw) as r:
+            if own_handler:
+                r.page.on("dialog", lambda d: d.accept())
+            r.goto(self.url("after"))
+            r.page.evaluate(ASK_BUTTON)
+            r.click("#ask")
+            r.pause(0.3)
+            return r.page.evaluate("document.body.dataset.answer"), list(r.dialogs)
+
+    def test_confirm_is_dismissed_by_default(self):
+        self.assertEqual(self.confirm_answer(), ("false", ["Discard changes?"]))
+
+    def test_confirm_is_accepted_on_request(self):
+        self.assertEqual(self.confirm_answer(dialogs="accept"), ("true", ["Discard changes?"]))
+
+    def test_a_flows_own_dialog_handler_keeps_its_answer(self):
+        self.assertEqual(self.confirm_answer(own_handler=True), ("true", ["Discard changes?"]))
 
     def test_show_fails_loudly_when_evidence_is_missing(self):
         from recorder import Recorder
