@@ -1,0 +1,120 @@
+<!doctype html>
+<!--
+  Demo app for the before-after-video example and tests. No build, no server code:
+  serve this folder with `python3 -m http.server`, then open
+  /index.html?v=before (old code) or ?v=after (new code). ?delay=<ms> sets the slow load.
+  The change it shows: a discount over 100% used to raise a browser alert and lose
+  the typed value; now an inline message explains the limit and the value stays.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Orders</title>
+<style>
+  body { margin: 0; font: 16px/1.5 system-ui, sans-serif; color: #111827; background: #f9fafb; }
+  header { position: sticky; top: 0; display: flex; gap: 16px; align-items: center; padding: 14px 32px;
+           background: #1e3a8a; color: #fff; }
+  header h1 { font-size: 20px; margin: 0; flex: 1; }
+  main { padding: 24px 32px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid #e5e7eb; }
+  th { background: #f3f4f6; font-weight: 600; }
+  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #9ca3af; background: #fff; cursor: pointer; }
+  button.primary { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+  .loading { padding: 60px; text-align: center; color: #6b7280; }
+  dialog { border: 0; border-radius: 12px; padding: 24px 28px; width: 420px; box-shadow: 0 20px 50px rgba(0,0,0,.3); }
+  dialog label { display: block; margin: 12px 0 4px; font-weight: 600; }
+  dialog input { font: inherit; width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #9ca3af; border-radius: 6px; }
+  .error { color: #b91c1c; font-size: 14px; margin-top: 4px; }
+  .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Orders</h1>
+  <span id="today"></span>
+  <button id="print">Print list</button>
+</header>
+<main>
+  <div class="loading" id="loading">Loading orders…</div>
+  <table id="orders" hidden>
+    <thead><tr><th>Order</th><th>Customer</th><th>Email</th><th>Discount</th><th>Delivery</th><th></th></tr></thead>
+    <tbody></tbody>
+  </table>
+</main>
+<dialog id="edit">
+  <h2 style="margin:0">Edit <span id="edit-title"></span></h2>
+  <label for="discount">Discount (%)</label>
+  <input id="discount" inputmode="numeric" aria-label="Discount">
+  <div class="error" id="discount-error" hidden></div>
+  <label for="delivery">Delivery date</label>
+  <input id="delivery" type="date" aria-label="Delivery date">
+  <div class="actions">
+    <button id="cancel">Cancel</button>
+    <button id="save" class="primary">Save</button>
+  </div>
+</dialog>
+<script>
+  const params = new URLSearchParams(location.search);
+  const VERSION = params.get('v') === 'before' ? 'before' : 'after';
+  const DELAY = Number(params.get('delay') ?? 6000);
+  const orders = [
+    { id: 'A-1001', customer: 'Robin Park', email: 'robin.park@example.com', discount: 5, delivery: '2026-12-01' },
+    { id: 'A-1002', customer: 'Sam Rivera', email: 'sam.rivera@example.com', discount: 0, delivery: '2026-12-03' },
+    { id: 'A-1003', customer: 'Kai Moreau', email: 'kai.moreau@example.com', discount: 10, delivery: '2026-12-08' },
+  ];
+  let editing = null;
+  const $ = (id) => document.getElementById(id);
+  const fmtDate = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString(navigator.language);
+
+  $('today').textContent = new Date().toLocaleDateString(navigator.language, { dateStyle: 'medium' });
+
+  function render() {
+    $('orders').querySelector('tbody').innerHTML = orders.map((o) => `
+      <tr data-id="${o.id}"><td>${o.id}</td><td>${o.customer}</td><td class="email">${o.email}</td>
+      <td class="discount">${o.discount}%</td><td>${fmtDate(o.delivery)}</td>
+      <td><button data-edit="${o.id}">Edit</button></td></tr>`).join('');
+  }
+
+  function openEdit(id) {
+    editing = orders.find((o) => o.id === id);
+    $('edit-title').textContent = editing.id;
+    $('discount').value = String(editing.discount);
+    $('delivery').value = editing.delivery;
+    $('discount-error').hidden = true;
+    $('edit').showModal();
+  }
+
+  function save() {
+    const value = Number($('discount').value);
+    if (!(value >= 0 && value <= 100)) {
+      if (VERSION === 'before') {
+        alert('Invalid discount');
+        $('discount').value = '';         // the bug: the typed value is lost
+      } else {
+        $('discount-error').textContent = 'Discount must be 0–100%';
+        $('discount-error').hidden = false;
+      }
+      return;
+    }
+    editing.discount = value;
+    editing.delivery = $('delivery').value || editing.delivery;
+    $('edit').close();
+    render();
+  }
+
+  document.addEventListener('click', (e) => {
+    const id = e.target.dataset && e.target.dataset.edit;
+    if (id) openEdit(id);
+  });
+  $('save').addEventListener('click', save);
+  $('cancel').addEventListener('click', () => $('edit').close());
+  $('print').addEventListener('click', () => {
+    const w = window.open('', 'print', 'width=600,height=400');
+    w.document.write('<title>Print</title><h1>Orders (print view)</h1><p>' + orders.length + ' orders</p>');
+  });
+
+  setTimeout(() => { render(); $('loading').hidden = true; $('orders').hidden = false; }, DELAY);
+</script>
+</body>
+</html>

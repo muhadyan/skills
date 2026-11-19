@@ -1,11 +1,13 @@
-"""Combine the before/after takes into one side-by-side MP4 (and optionally a GIF).
+"""Combine the before/after takes into one side-by-side MP4, plus a contact sheet per take.
 
 Usage: python compose.py OUT_DIR [--topic X] [--gif] [--width 960] [--crf 20]
 
 Reads OUT_DIR/<topic>_BEFORE.mp4 and <topic>_AFTER.mp4 (or before.mp4 / after.mp4
-without --topic), writes <topic>_SIDE_BY_SIDE.mp4 next to them. The takes carry
-their own BEFORE/AFTER corner badge (drawn by recorder.py), so no text filter is
-needed here. The shorter take holds its last frame until the longer one ends.
+without --topic), writes <topic>_SIDE_BY_SIDE.mp4 next to them, and a 4x4
+contact sheet of each take (<topic>_BEFORE_sheet.png) for the frame check.
+The takes carry their own BEFORE/AFTER corner badge (drawn by recorder.py), so
+no text filter is needed here. The shorter take holds its last frame until the
+longer one ends.
 """
 from __future__ import annotations
 
@@ -36,6 +38,14 @@ def side_by_side(before: Path, after: Path, dst: Path, *, width: int, crf: int) 
     return dst
 
 
+def contact_sheet(src: Path, dst: Path, *, tiles: int = 4) -> Path:
+    """tiles x tiles frames spread evenly over the take, 720 px wide each."""
+    fps = tiles * tiles / duration(src)
+    run_ffmpeg(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf",
+                f"fps={fps:.6f},scale=720:-1,tile={tiles}x{tiles}", "-frames:v", "1", str(dst)])
+    return dst
+
+
 def to_gif(src: Path, dst: Path, *, width: int) -> Path:
     # 12 fps and a per-clip palette keep UI text readable at a fraction of the size
     run_ffmpeg(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf",
@@ -63,6 +73,8 @@ def main() -> None:
     mp4 = side_by_side(before, after, args.out_dir / f"{stem}.mp4", width=args.width, crf=args.crf)
     report_size(mp4)
     print(mp4)
+    for take in (before, after):
+        print(contact_sheet(take, take.with_name(f"{take.stem}_sheet.png")))
     if args.gif:
         gif = to_gif(mp4, args.out_dir / f"{stem}.gif", width=args.width)
         report_size(gif)

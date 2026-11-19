@@ -44,7 +44,7 @@ Pick the skills you want and which agents to install them on. Pull later changes
 
 ### Engineering
 
-- **[before-after-video](./skills/engineering/before-after-video/SKILL.md)**: Record before/after MP4 videos of a UI change (visible mouse pointer, click rings, key-press box, captions) plus a side-by-side version, with Playwright + ffmpeg. Saves files by default; posts to a GitHub PR/issue (`gh --attach`) or a ClickUp comment when you ask. Needs `uv`, `ffmpeg` and Google Chrome.
+- **[before-after-video](./skills/engineering/before-after-video/SKILL.md)**: Record before/after MP4 videos of a UI change (visible mouse pointer, click rings, key-press box, captions, browser alerts) plus a side-by-side version, with Playwright + ffmpeg. Works on any web app: cuts slow loads, survives popups, blurs personal data, checks every caption against the screen, and runs the old code in a git worktree so your checkout stays untouched. Saves files by default; posts to a GitHub PR/issue (`gh --attach`) or a ClickUp comment or thread reply when you ask. Needs `uv`, `ffmpeg` and Google Chrome.
 
 ### Knowledge
 
