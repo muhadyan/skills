@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from media import EVEN_DIMS
+from media import ENCODE_THREADS, EVEN_DIMS
 
 
 def _wall_ms() -> float:
@@ -60,7 +60,7 @@ class FrameEncoder:
         self.proc = popen(
             ["ffmpeg", "-v", "error", "-y", "-f", "image2pipe", "-c:v", "mjpeg", "-framerate", str(fps), "-i", "-",
              "-vf", EVEN_DIMS, "-c:v", "libx264", "-preset", "medium", "-tune", "animation", "-crf", str(crf),
-             "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(self.dst)],
+             "-pix_fmt", "yuv420p", *ENCODE_THREADS, "-movflags", "+faststart", "-an", str(self.dst)],
             stdin=subprocess.PIPE, stderr=subprocess.PIPE)
 
     # Older flow scripts cut a load by shifting these by hand; keep them writable.

@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from media import report_size, require_ffmpeg, run_ffmpeg, video_name
+from media import ENCODE_THREADS, report_size, require_ffmpeg, run_ffmpeg, video_name
 
 
 def duration(path: Path) -> float:
@@ -34,7 +34,7 @@ def side_by_side(before: Path, after: Path, dst: Path, *, width: int, crf: int) 
     run_ffmpeg(["ffmpeg", "-v", "error", "-y", "-i", str(before), "-i", str(after), "-filter_complex",
                 f"[0:v]{pane}[a];[1:v]{pane}[b];[a][b]hstack=inputs=2[v]", "-map", "[v]", "-t", f"{longest:.2f}",
                 "-r", "30", "-c:v", "libx264", "-preset", "medium", "-tune", "animation", "-crf", str(crf),
-                "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", str(dst)])
+                "-pix_fmt", "yuv420p", *ENCODE_THREADS, "-movflags", "+faststart", "-an", str(dst)])
     return dst
 
 

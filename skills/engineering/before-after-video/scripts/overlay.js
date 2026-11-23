@@ -83,7 +83,9 @@
       + 'box-shadow:0 4px 16px rgba(0,0,0,.25);display:none');
     const cap = box('__rec_cap', 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483646;'
       + 'background:rgba(17,24,39,.92);color:#fff;font:600 20px/1.4 system-ui;padding:12px 22px;'
-      + 'border-radius:10px;max-width:1100px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.3);display:none');
+      + 'border-radius:10px;text-align:center;box-shadow:0 6px 24px rgba(0,0,0,.3);display:none;'
+      // left:50% alone would cap the box at half the screen: a phone caption wraps after two words
+      + 'box-sizing:border-box;width:max-content;max-width:min(720px,calc(100vw - 32px))');
     const badge = box('__rec_badge', 'position:fixed;left:16px;bottom:16px;z-index:2147483646;color:#fff;'
       + 'font:800 15px/1 system-ui;letter-spacing:.06em;padding:6px 10px;border-radius:6px;'
       + 'display:none;box-shadow:0 2px 8px rgba(0,0,0,.25)');
@@ -158,6 +160,10 @@
     window.__recCaption = (t, top) => {
       cap.textContent = t; cap.style.display = t ? 'block' : 'none';
       cap.style.top = top ? '64px' : ''; cap.style.bottom = top ? '' : '28px';
+      if (!top && t && badge.style.display !== 'none') {  // a wide bar (a phone, a long caption) would cover the badge
+        const c = cap.getBoundingClientRect(), b = badge.getBoundingClientRect();
+        if (c.left < b.right + 8 && c.bottom > b.top - 8) cap.style.bottom = `${innerHeight - b.top + 8}px`;
+      }
     };
     window.__recBadge = (t, color) => {
       badge.textContent = t; badge.style.background = color; badge.style.display = t ? 'block' : 'none';

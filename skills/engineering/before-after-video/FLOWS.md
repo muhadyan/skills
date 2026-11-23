@@ -24,6 +24,7 @@ Find the row that matches what the screen does. Each row says what to put in the
 | works inside a frame (a payment form, an embedded editor) | Locate through the frame: `p.frame_locator("iframe#pay").locator("#card")`. `r.click` and `r.type` work there, and the pointer follows. The key box shows typing only in frames from the same origin as the page. |
 | types into a date or time input | Typed digits follow the browser locale. Set `locale` in `context_options`, or `r.move_to(input)` and then `input.fill("2026-12-01")`. |
 | is redirected by an app-wide gate (a banner, a "finish setup" screen, a forced tour) | Before the first `goto`, keep the gate's request away: `p.route("**/api/<gate-endpoint>**", lambda route: route.fulfill(status=404, body="{}"))`. Choose a reply the app treats as "nothing to show". Check that it changes no data. |
+| must be shown at a phone size and a PC size | Record one take per size: `Recorder("phone", …, width=390, height=844)`, then `Recorder("pc", …)`. Join them with before-after-video's `scripts/join.py`, which fits both on one canvas: `python3 join.py OUT --topic <topic> --parts phone pc`. Resizing the page during a take (`set_viewport_size`) shrinks every later frame into the first size. |
 | shows different lists for different user roles | Pick the test user's role first, then write the locators. Open the tab or filter that shows the rows (an "All" tab, for example) before you point at them. |
 
 ## People and data
@@ -32,7 +33,7 @@ Find the row that matches what the screen does. Each row says what to put in the
 |---|---|
 | real names, emails, phone numbers | Anonymise the local copy, for example `UPDATE users SET name = 'User ' \|\| id, email = 'user' \|\| id \|\| '@example.invalid'`. Or blur them: `Recorder(..., blur=[".email", "td.customer"])`, or `r.blur(selector)` during the take. Blur takes CSS selectors only, and it stays on after reloads. |
 | a login form | Log in with the camera off (`capture=False`, see Time). If the login must show, type the password into a password field (the key box shows dots) and type OTPs or tokens with `r.type(..., secret=True)`. |
-| what one user does and what another user sees | One `Recorder` is one browser, so storage is shared. Record one take per user. Join each mode's parts in order: write `file 'a.mp4'` and `file 'b.mp4'` lines to `list.txt`, then run `ffmpeg -f concat -safe 0 -i list.txt -c copy <topic>_BEFORE.mp4`. Then run `compose.py`. |
+| what one user does and what another user sees | One `Recorder` is one browser, so storage is shared. Record one take per user, for example `Recorder("before-buyer", …)` and `Recorder("before-seller", …)`. Their badges keep the mode's color. Join each mode's parts in order with before-after-video's `scripts/join.py`: `python3 join.py OUT --topic <topic> --parts before-buyer before-seller --name before`. Then run `compose.py`. |
 
 ## Showing the key moment
 

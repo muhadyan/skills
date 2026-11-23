@@ -30,7 +30,7 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from encoder import FrameEncoder
-from media import EVEN_DIMS, report_size, require_ffmpeg, run_ffmpeg, video_name
+from media import ENCODE_THREADS, EVEN_DIMS, report_size, require_ffmpeg, run_ffmpeg, video_name
 from options import context_kwargs, launch_kwargs
 
 _FrameEncoder = FrameEncoder  # old name, kept for flow scripts that import it
@@ -44,6 +44,13 @@ _HIT_TEST_JS = "(e, [x, y]) => { const t = document.elementFromPoint(x, y); retu
 # The app drew it: not the recorder's own key box, caption or badge (its dialog box counts as evidence).
 _APP_ELEMENT_JS = "e => e.id === '__rec_dialog' || !e.closest('#__rec_root')"
 _IN_TOP_PAGE_JS = "e => window.top === window"
+# The middle of the element's own text (a short heading in a wide block), or null: form fields, no text.
+_TEXT_MIDDLE_JS = """e => {
+  if (e.matches('input, textarea, select') || !e.textContent.trim()) return null;
+  const range = document.createRange(); range.selectNodeContents(e);
+  const b = range.getBoundingClientRect();
+  return b.width && b.height ? [b.left + b.width / 2, b.top + b.height / 2] : null;
+}"""
 
 
 @dataclass
@@ -132,7 +139,7 @@ class Recorder:
                 self.ctx.on("dialog", self._on_dialog)
             self.ctx.expose_binding("__recCaptionNow", lambda _source: list(self._on_screen))
             if self.badge:
-                color = BADGE_COLORS.get(self.name.lower(), "#1f2937")
+                color = BADGE_COLORS.get(self.name.lower().split("-")[0], "#1f2937")  # "before-buyer" stays red
                 self.ctx.add_init_script(f"window.__recBadgeInit = {json.dumps([self.name.upper(), color])};")
             self.ctx.add_init_script(f"window.__recBlurInit = {json.dumps(self.blur_selectors)};")
             self.ctx.add_init_script(OVERLAY_JS)
@@ -327,8 +334,8 @@ class Recorder:
             raise RuntimeError(f"not visible after {self.timeout_ms} ms: {target}") from e
         if box is None:
             raise RuntimeError(f"not visible: {target}")
-        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
         in_top_page = loc.evaluate(_IN_TOP_PAGE_JS)
+        x, y = self._aim(loc, box, in_top_page)
         # scroll_into_view_if_needed leaves a target alone when it counts as in
         # view, even if a sticky header covers it: the click then lands on the
         # header and typing goes nowhere, silently. Re-centre when the point is
@@ -338,13 +345,25 @@ class Recorder:
             # instant: with CSS scroll-behavior:smooth the box below would be read mid-scroll
             loc.evaluate("e => e.scrollIntoView({block: 'center', inline: 'center', behavior: 'instant'})")
             box = loc.bounding_box() or box
-            x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+            x, y = self._aim(loc, box, in_top_page)
         if in_top_page and not self._in_frame:
             self.page.mouse.move(x, y, steps=self.glide_steps)  # the page's own mouse events move the pointer
         else:
             self._glide_drawn(x, y)
         self._in_frame = not in_top_page
         self._pos = (x, y)
+        return x, y
+
+    @staticmethod
+    def _aim(loc: Locator, box: dict, in_top_page: bool) -> tuple[float, float]:
+        """The middle of the target's text when it lies inside the target, else the middle of the box.
+        A short heading in a wide block would otherwise get the pointer on blank space beside it."""
+        x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+        if not in_top_page:  # inside a frame the page coordinates do not fit the frame's document
+            return x, y
+        text = loc.evaluate(_TEXT_MIDDLE_JS)
+        if text and box["x"] <= text[0] <= box["x"] + box["width"] and box["y"] <= text[1] <= box["y"] + box["height"]:
+            return text[0], text[1]
         return x, y
 
     def _glide_drawn(self, x: float, y: float) -> None:
@@ -423,6 +442,8 @@ class Recorder:
             self.page.wait_for_timeout(100)
             actual = loc.input_value()
         if actual != value:
+            if loc.evaluate("e => e.type === 'password'"):  # the error lands in logs and transcripts
+                actual, value = f"<{len(actual)} characters>", f"<{len(value)} characters>"
             raise RuntimeError(f"evidence shows {actual!r}, expected {value!r}: {loc} (caption: {caption!r})")
 
     def _end_caption(self) -> None:
@@ -457,5 +478,5 @@ class Recorder:
 def to_mp4(src: Path, dst: Path, *, crf: int = 20) -> Path:
     """WebM → H.264 MP4 (plays inline in ClickUp, Slack, GitHub, QuickTime)."""
     run_ffmpeg(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vf", EVEN_DIMS, "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-crf", str(crf), "-preset", "medium", "-movflags", "+faststart", "-an", str(dst)])
+                "-crf", str(crf), "-preset", "medium", *ENCODE_THREADS, "-movflags", "+faststart", "-an", str(dst)])
     return dst
