@@ -11,6 +11,7 @@ One part named like the output (``--parts demo``) gets only the sheet.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from media import ENCODE_THREADS, report_size, require_ffmpeg, run_ffmpeg, video
 
 BACKGROUND = "0x111827"  # the caption bar's dark grey, so the bars read as a frame around the take
 FPS = 30
+MAX_SIDE = 7680  # 8K: a bigger canvas only makes ffmpeg fail after a long wait
 
 
 def frame_size(path: Path) -> tuple[int, int]:
@@ -40,6 +42,8 @@ def canvas(sizes: Sequence[tuple[int, int]], size: Optional[str] = None) -> tupl
         if not match:
             raise ValueError(f"--size must be WIDTHxHEIGHT, for example 1440x810, not {size!r}")
         width, height = int(match.group(1)), int(match.group(2))
+        if max(width, height) > MAX_SIDE:
+            raise ValueError(f"--size must be WIDTHxHEIGHT with sides up to {MAX_SIDE}, not {size!r}")
     else:
         width, height = max(sizes, key=lambda s: s[0] * s[1])
     return width + width % 2, height + height % 2  # libx264 + yuv420p rejects odd sizes
@@ -54,10 +58,16 @@ def join(parts: Sequence[Path], dst: Path, *, size: tuple[int, int], crf: int) -
     cmd = ["ffmpeg", "-v", "error", "-y"]
     for part in parts:
         cmd += ["-i", str(part)]
+    # ffmpeg writes the output while it encodes: a failed run must not leave a short file under the final name
+    part = dst.with_name(f".{dst.stem}.part{dst.suffix}")
     cmd += ["-filter_complex", f"{chains};{inputs}concat=n={len(parts)}:v=1:a=0[v]", "-map", "[v]",
             "-c:v", "libx264", "-preset", "medium", "-tune", "animation", "-crf", str(crf), "-pix_fmt", "yuv420p",
-            *ENCODE_THREADS, "-movflags", "+faststart", "-an", str(dst)]
-    run_ffmpeg(cmd)
+            *ENCODE_THREADS, "-movflags", "+faststart", "-an", str(part)]
+    try:
+        run_ffmpeg(cmd)
+        os.replace(part, dst)
+    finally:
+        part.unlink(missing_ok=True)
     return dst
 
 
@@ -77,11 +87,14 @@ def main() -> None:
     args = ap.parse_args()
 
     require_ffmpeg()
-    paths = part_paths(args.out_dir, args.topic, args.parts)
+    try:
+        paths = part_paths(args.out_dir, args.topic, args.parts)
+        dst = args.out_dir / video_name(args.name, args.topic)
+    except ValueError as e:
+        sys.exit(str(e))
     missing = [str(p) for p in paths if not p.exists()]
     if missing:
         sys.exit(f"missing take(s): {', '.join(missing)}. Record every part before joining.")
-    dst = args.out_dir / video_name(args.name, args.topic)
     if dst in paths and len(paths) > 1:
         sys.exit(f"{dst.name} is also a part: joining would overwrite it. Pick another --name.")
 

@@ -1,6 +1,7 @@
 """Small ffmpeg/file helpers shared by recorder.py and compose.py (no Playwright needed)."""
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -12,9 +13,21 @@ EVEN_DIMS = "scale=trunc(iw/2)*2:trunc(ih/2)*2"  # libx264 + yuv420p rejects odd
 ENCODE_THREADS = ["-threads", "4"]
 
 
+# A take or topic name becomes part of a file name: letters, digits, "_", "-", "." and spaces, no path.
+_SAFE_NAME = re.compile(r"[^\W_][\w. -]*")
+
+
+def _check_name(name: str) -> str:
+    if not _SAFE_NAME.fullmatch(name) or ".." in name:
+        raise ValueError(f"take and topic names take letters, digits, '_', '-', '.' and spaces, "
+                         f"starting with a letter or digit: {name!r}")
+    return name
+
+
 def video_name(mode: str, topic: str | None = None) -> str:
     """``<topic>_BEFORE.mp4`` when a topic is given, else ``before.mp4``."""
-    return f"{topic}_{mode.upper()}.mp4" if topic else f"{mode}.mp4"
+    _check_name(mode)
+    return f"{_check_name(topic)}_{mode.upper()}.mp4" if topic else f"{mode}.mp4"
 
 
 def require_ffmpeg() -> None:

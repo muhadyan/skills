@@ -4,6 +4,7 @@ import io
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from helpers import TempDirCase, clip, duration, needs_ffmpeg
@@ -37,7 +38,7 @@ class CanvasTest(unittest.TestCase):
         self.assertEqual(join.canvas([(390, 844)], "640x360"), (640, 360))
 
     def test_bad_size_option_is_refused(self):
-        for bad in ("640", "640x", "x360", "0x360", "640x-2", "axb"):
+        for bad in ("640", "640x", "x360", "0x360", "640x-2", "axb", "70000x70000", "7682x100"):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "WIDTHxHEIGHT"):
                 join.canvas([(390, 844)], bad)
 
@@ -88,6 +89,28 @@ class JoinTest(TempDirCase):
         self.assertEqual(demo.read_bytes(), before)
         self.assertIn("t_DEMO_sheet.png", out)
         self.assertTrue((self.tmp / "t_DEMO_sheet.png").exists())
+
+    def test_a_failed_join_keeps_the_old_video_and_leaves_no_part_file(self):
+        clip(self.tmp / "a.mp4", 0.5, "red")
+        old = self.tmp / "out.mp4"
+        old.write_bytes(b"old video")
+        def ffmpeg_dies(cmd):  # like ffmpeg: the output file exists, empty, before the encode fails
+            Path(cmd[-1]).write_bytes(b"")
+            raise RuntimeError("ffmpeg failed")
+
+        with mock.patch.object(join, "run_ffmpeg", side_effect=ffmpeg_dies):
+            with self.assertRaisesRegex(RuntimeError, "ffmpeg failed"):
+                join.join([self.tmp / "a.mp4"], old, size=(64, 48), crf=20)
+        self.assertEqual(old.read_bytes(), b"old video")
+        self.assertEqual(sorted(p.name for p in self.tmp.iterdir()), ["a.mp4", "out.mp4"])
+
+    def test_names_with_a_path_are_refused(self):
+        out = self.tmp / "out"
+        out.mkdir()
+        clip(out / "a.mp4", 0.5, "red")
+        with self.assertRaisesRegex(SystemExit, "letters"):
+            run_main(str(out), "--parts", "a", "--name", "../escaped")
+        self.assertEqual([p.name for p in self.tmp.iterdir()], ["out"])
 
     def test_encode_uses_a_fixed_thread_count(self):
         clip(self.tmp / "a.mp4", 0.5, "red")

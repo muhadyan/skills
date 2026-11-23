@@ -149,6 +149,17 @@ class E2ETest(TempDirCase):
         self.assertGreater(block["width"], 3 * (text[1] - text[0]))
         self.assertTrue(text[0] <= x <= text[1] and text[2] <= y <= text[3], (x, y, text))
 
+    def test_a_password_value_never_reaches_the_error(self):
+        from recorder import Recorder
+        with self.assertRaises(RuntimeError) as err:
+            with Recorder("after", self.tmp, topic="pw", timeout_ms=3000) as r:  # also the page load's limit
+                r.goto(self.url("after"))
+                r.page.evaluate("""() => { const i = document.createElement('input'); i.type = 'password';
+                  i.id = 'pw'; i.value = 'hunter2'; document.querySelector('main').prepend(i); }""")
+                r.show("#pw", "claims the password", value="other", hold=0)
+        self.assertNotIn("hunter2", str(err.exception))
+        self.assertIn("<7 characters>", str(err.exception))
+
     def test_cut_removes_the_wait_from_the_video(self):
         from recorder import Recorder
         start = time.time()

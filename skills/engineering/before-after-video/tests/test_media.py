@@ -16,6 +16,17 @@ class VideoNameTest(unittest.TestCase):
     def test_no_topic(self):
         self.assertEqual(media.video_name("after"), "after.mp4")
 
+    def test_names_stay_inside_the_output_folder(self):
+        for mode, topic in (("../x", None), ("a/b", None), ("after", "../t"), ("after", "a\\b"), ("after", "pipe:1"),
+                            ("after", "x..y"), (".hidden", None), ("-v", None), ("", None)):
+            with self.subTest(mode=mode, topic=topic), self.assertRaisesRegex(ValueError, "letters"):
+                media.video_name(mode, topic)
+
+    def test_ticket_keys_and_scene_names_are_fine(self):
+        self.assertEqual(media.video_name("before-buyer", "PROJ-12"), "PROJ-12_BEFORE-BUYER.mp4")
+        self.assertEqual(media.video_name("shop", "z94 order v2.1"), "z94 order v2.1_SHOP.mp4")
+        self.assertEqual(media.video_name("demo", "割引"), "割引_DEMO.mp4")
+
 
 class RequireFfmpegTest(unittest.TestCase):
     def test_missing_ffmpeg_says_how_to_install(self):

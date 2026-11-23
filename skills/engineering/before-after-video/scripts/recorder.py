@@ -442,6 +442,8 @@ class Recorder:
             self.page.wait_for_timeout(100)
             actual = loc.input_value()
         if actual != value:
+            if loc.evaluate("e => e.type === 'password'"):  # the error lands in logs and transcripts
+                actual, value = f"<{len(actual)} characters>", f"<{len(value)} characters>"
             raise RuntimeError(f"evidence shows {actual!r}, expected {value!r}: {loc} (caption: {caption!r})")
 
     def _end_caption(self) -> None:
