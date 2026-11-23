@@ -30,6 +30,7 @@ except ImportError:
     HAS_PLAYWRIGHT = False
 HAS_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
 LINK = re.compile(r"\]\(([^)#\s]+)")
+SIBLING = re.compile(r"\.\./before-after-video/([\w/-]+(?:\.\w+)?)")  # also inside commands
 FENCE = re.compile(r"^ *```.*?^ *```", re.S | re.M)  # templates in code blocks are not links
 
 
@@ -48,9 +49,14 @@ class LinksTest(unittest.TestCase):
                 with self.subTest(doc=doc.name, target=target):
                     self.assertTrue((doc.parent / target).exists(), f"{doc.name} links to a missing {target}")
 
-    def test_the_sibling_scripts_it_runs_exist(self):
-        for name in ("recorder.py", "join.py"):
-            self.assertTrue((BAV / "scripts" / name).exists(), name)
+    def test_every_sibling_path_it_names_exists(self):
+        named = set()
+        for doc in [*SKILL.rglob("*.md"), *SKILL.rglob("*.py")]:
+            named |= set(SIBLING.findall(doc.read_text(encoding="utf-8")))
+        self.assertLessEqual({"scripts/recorder.py", "scripts/join.py"}, named)
+        for path in named:
+            with self.subTest(path=path):
+                self.assertTrue((BAV / path).exists(), f"before-after-video/{path} is missing")
 
     def test_the_plugin_lists_the_skill(self):
         plugin = json.loads((REPO / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))

@@ -159,8 +159,11 @@
   function wireCaptionAndBadge(cap, badge) {
     window.__recCaption = (t, top) => {
       cap.textContent = t; cap.style.display = t ? 'block' : 'none';
-      const low = innerWidth < 720 ? '56px' : '28px';  // on a narrow screen the bar is as wide as the badge row
-      cap.style.top = top ? '64px' : ''; cap.style.bottom = top ? '' : low;
+      cap.style.top = top ? '64px' : ''; cap.style.bottom = top ? '' : '28px';
+      if (!top && t && badge.style.display !== 'none') {  // a wide bar (a phone, a long caption) would cover the badge
+        const c = cap.getBoundingClientRect(), b = badge.getBoundingClientRect();
+        if (c.left < b.right + 8 && c.bottom > b.top - 8) cap.style.bottom = `${innerHeight - b.top + 8}px`;
+      }
     };
     window.__recBadge = (t, color) => {
       badge.textContent = t; badge.style.background = color; badge.style.display = t ? 'block' : 'none';

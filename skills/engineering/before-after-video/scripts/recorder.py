@@ -139,7 +139,7 @@ class Recorder:
                 self.ctx.on("dialog", self._on_dialog)
             self.ctx.expose_binding("__recCaptionNow", lambda _source: list(self._on_screen))
             if self.badge:
-                color = BADGE_COLORS.get(self.name.lower(), "#1f2937")
+                color = BADGE_COLORS.get(self.name.lower().split("-")[0], "#1f2937")  # "before-buyer" stays red
                 self.ctx.add_init_script(f"window.__recBadgeInit = {json.dumps([self.name.upper(), color])};")
             self.ctx.add_init_script(f"window.__recBlurInit = {json.dumps(self.blur_selectors)};")
             self.ctx.add_init_script(OVERLAY_JS)

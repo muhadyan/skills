@@ -80,9 +80,9 @@ class E2ETest(TempDirCase):
         self.assertTrue((self.tmp / "discount_BEFORE_sheet.png").exists())
         self.assertTrue((self.tmp / "discount_AFTER_sheet.png").exists())
 
-    def caption_box(self, width: int, height: int, text: str) -> tuple:
+    def caption_box(self, width: int, height: int, text: str, name: str = "after") -> tuple:
         from recorder import Recorder
-        with Recorder("after", self.tmp, topic=f"cap{width}", width=width, height=height) as r:
+        with Recorder(name, self.tmp, topic=f"cap{width}", width=width, height=height) as r:
             r.goto(self.url("after"))
             r.caption(text)
             r.pause(0.3)  # a take needs at least one frame
@@ -96,6 +96,39 @@ class E2ETest(TempDirCase):
         self.assertGreaterEqual(left, 0)
         self.assertLessEqual(right, 390)
         self.assertLessEqual(bottom, badge_top)
+
+    def test_caption_clears_a_long_badge_on_a_landscape_phone(self):
+        left, right, bottom, badge_top = self.caption_box(844, 390, "word " * 30, name="before-buyer")
+        self.assertLessEqual(bottom, badge_top)
+
+    def test_caption_keeps_its_desktop_place(self):
+        _left, _right, bottom, _badge_top = self.caption_box(1440, 810, "a short caption")
+        self.assertAlmostEqual(bottom, 810 - 28, delta=1)
+
+    def test_a_take_part_keeps_its_mode_color(self):
+        from recorder import Recorder
+        with Recorder("before-buyer", self.tmp, topic="part") as r:
+            r.goto(self.url("before"))
+            r.caption("buyer")
+            r.pause(0.3)
+            color = r.page.evaluate("getComputedStyle(document.getElementById('__rec_badge')).backgroundColor")
+        self.assertEqual(color, "rgb(185, 28, 28)")  # #b91c1c, the BEFORE red
+
+    def test_aim_falls_back_to_the_box_middle(self):
+        from recorder import Recorder
+
+        class Loc:
+            def __init__(self, point):
+                self.point = point
+
+            def evaluate(self, _js):
+                return self.point
+
+        box = {"x": 10, "y": 20, "width": 100, "height": 40}
+        self.assertEqual(Recorder._aim(Loc([500, 40]), box, True), (60, 40))  # text overflows the box
+        self.assertEqual(Recorder._aim(Loc(None), box, True), (60, 40))  # a form field or no text
+        self.assertEqual(Recorder._aim(Loc([30, 30]), box, False), (60, 40))  # inside a frame
+        self.assertEqual(Recorder._aim(Loc([30, 30]), box, True), (30, 30))
 
     def test_caption_keeps_its_desktop_width(self):
         left, right, _bottom, _badge_top = self.caption_box(1440, 810, "word " * 60)

@@ -55,8 +55,6 @@ class ArgumentTest(TempDirCase):
             with self.assertRaisesRegex(SystemExit, "overwrite"):
                 run_main(str(self.tmp), "--topic", "t", "--parts", "shop", "demo")
 
-    def test_the_same_part_twice_is_allowed(self):
-        self.assertEqual(join.part_paths(self.tmp, "t", ["a", "a"]), [self.tmp / "t_A.mp4"] * 2)
 
 
 @needs_ffmpeg
@@ -71,6 +69,11 @@ class JoinTest(TempDirCase):
         self.assertAlmostEqual(duration(demo), 2.5, delta=0.2)
         for name in ("t_DEMO_sheet.png", "t_DEMO.gif"):
             self.assertTrue((self.tmp / name).exists(), name)
+
+    def test_the_same_part_twice_plays_twice(self):
+        clip(self.tmp / "t_A.mp4", 0.5, "red")
+        run_main(str(self.tmp), "--topic", "t", "--parts", "a", "a")
+        self.assertAlmostEqual(duration(self.tmp / "t_DEMO.mp4"), 1.0, delta=0.15)
 
     def test_size_and_name_options(self):
         clip(self.tmp / "a.mp4", 0.5, "red", "100x200")

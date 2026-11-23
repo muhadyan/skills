@@ -33,7 +33,7 @@ Find the row that matches what the screen does. Each row says what to put in the
 |---|---|
 | real names, emails, phone numbers | Anonymise the local copy, for example `UPDATE users SET name = 'User ' \|\| id, email = 'user' \|\| id \|\| '@example.invalid'`. Or blur them: `Recorder(..., blur=[".email", "td.customer"])`, or `r.blur(selector)` during the take. Blur takes CSS selectors only, and it stays on after reloads. |
 | a login form | Log in with the camera off (`capture=False`, see Time). If the login must show, type the password into a password field (the key box shows dots) and type OTPs or tokens with `r.type(..., secret=True)`. |
-| what one user does and what another user sees | One `Recorder` is one browser, so storage is shared. Record one take per user, for example `Recorder("before-buyer", …)` and `Recorder("before-seller", …)`. Join each mode's parts in order with before-after-video's `scripts/join.py`: `python3 join.py OUT --topic <topic> --parts before-buyer before-seller --name before`. Then run `compose.py`. |
+| what one user does and what another user sees | One `Recorder` is one browser, so storage is shared. Record one take per user, for example `Recorder("before-buyer", …)` and `Recorder("before-seller", …)`. Their badges keep the mode's color. Join each mode's parts in order with before-after-video's `scripts/join.py`: `python3 join.py OUT --topic <topic> --parts before-buyer before-seller --name before`. Then run `compose.py`. |
 
 ## Showing the key moment
 

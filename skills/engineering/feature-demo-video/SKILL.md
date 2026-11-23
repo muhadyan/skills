@@ -10,6 +10,8 @@ One MP4 shows what a ticket built: a scene for each acceptance criterion (AC), a
 
 This skill reuses before-after-video's tools: `recorder.py` (pointer, click rings, key box, captions, evidence checks), `join.py`, and its posting guides. They live in `${CLAUDE_SKILL_DIR}/../before-after-video`. Outside Claude Code that variable is not filled in: use the `before-after-video` folder next to this skill's folder.
 
+`OUT` below is an output folder outside the repo. `<topic>` is the ticket key (`DEMO-12`): every file name starts with it.
+
 ## Steps
 
 0. **Check the tools.** `ls "${CLAUDE_SKILL_DIR}/../before-after-video/scripts/recorder.py"` must print the path. If it does not, install before-after-video next to this skill (the plugin and `npx skills add muhadyan/skills` ship both). Then do step 0 of [before-after-video](../before-after-video/SKILL.md). Done when `recorder.py` is found and uv, ffmpeg and Chrome are there.
@@ -29,7 +31,7 @@ This skill reuses before-after-video's tools: `recorder.py` (pointer, click ring
 
    Done when the flow can run twice in a row with the same screens, and nothing can reach a real customer.
 
-3. **Write the flow script.** Copy [`examples/demo_flow.py`](examples/demo_flow.py). It runs against before-after-video's demo app. Import `recorder.py`; do not copy it. Read before-after-video's step 2 for `r.show`, `r.caption` and real input events. They work the same here.
+3. **Write the flow script.** Copy [`examples/demo_flow.py`](examples/demo_flow.py). It runs against before-after-video's demo app; its docstring says how to serve it. Import `recorder.py`; do not copy it. Read before-after-video's step 2 for `r.show`, `r.caption` and real input events. They work the same here.
    - Open on the first ready screen with the ticket: `r.show(heading, "DEMO-12: edit an order's discount")`.
    - Give every on-screen AC at least one `r.show(evidence, "AC2: …")`, its caption starting with the AC label. Use `r.caption` only for narration that claims nothing ("open the admin").
    - Order the scenes as a user meets them. The labels keep the ticket's numbers.
@@ -45,12 +47,12 @@ This skill reuses before-after-video's tools: `recorder.py` (pointer, click ring
    - For slow loads, login, popups, alerts, personal data and two sizes, see [FLOWS.md](../before-after-video/FLOWS.md).
 
    ```bash
-   PYTHONPATH="${CLAUDE_SKILL_DIR}/../before-after-video/scripts" uv run --with "playwright>=1.59" python flow.py OUT
+   PYTHONPATH="${CLAUDE_SKILL_DIR}/../before-after-video/scripts" uv run --with "playwright>=1.59" python flow.py OUT --topic <topic>
    ```
 
    Done when every take runs end to end and prints its `OUT/<topic>_<TAKE>.mp4`.
 
-4. **Join the takes:** `python3 "${CLAUDE_SKILL_DIR}/../before-after-video/scripts/join.py" OUT --topic <topic> --parts shop admin`. It plays them in that order on one canvas and writes `OUT/<topic>_DEMO.mp4` and its contact sheet `OUT/<topic>_DEMO_sheet.png`. A single take named `demo` needs no join: `--parts demo` writes only the sheet. Done when the MP4 path prints with its size.
+4. **Join the takes:** `python3 "${CLAUDE_SKILL_DIR}/../before-after-video/scripts/join.py" OUT --topic <topic> --parts shop admin`. It plays them in that order on one canvas and writes `OUT/<topic>_DEMO.mp4` and its contact sheet `OUT/<topic>_DEMO_sheet.png`. A single take named `demo` needs no join: `--parts demo` writes only the sheet. Name a take `demo` only when it is the only one: the joined video takes that name. Done when the MP4 path prints with its size.
 
 5. **Check every still against the AC map.** Each take writes `OUT/<topic>_<TAKE>_stills/NN.jpg` and `captions.txt` (still name, tab, caption). Read every still next to its caption, then read the sheet. Done when every on-screen AC in the map has a still whose caption starts with its label and whose screen shows its evidence, the pointer is on the evidence, every frame is whole, and no secret or personal data is on screen. If a still fails, fix the flow and record that take again from the data reset.
 
@@ -70,10 +72,12 @@ This skill reuses before-after-video's tools: `recorder.py` (pointer, click ring
    Checked outside the video: AC4, `test_discount_limit` passes.
    ```
 
+   A video over 10 MB does not upload to a free GitHub plan. Join again with `--crf 26`, or record a single `demo` take again with `Recorder(..., crf=26)`.
+
    Done when the user has the path, and the post URL if you posted.
 
 ## Gotchas
 
 - A take never changes size. `page.set_viewport_size` during a take shrinks every later frame into the first size. Record one take per size and join them.
 - Captions in Japanese, Chinese or Korean need a CJK font on the machine that records. Linux often has none (install `fonts-noto-cjk`), so check the first still.
-- Everything in before-after-video's Gotchas applies here too (video size limits, `python -I`, stopping servers by PID).
+- Everything in before-after-video's Gotchas applies here too (`python -I`, first matches, stopping servers by PID).
