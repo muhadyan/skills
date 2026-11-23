@@ -9,7 +9,7 @@
     {
       "name": "muhadyan-skills",
       "source": "./",
-      "description": "Adyan's agent skills for everyday engineering (before/after demo videos, UI/UX revamps and more).",
+      "description": "Adyan's agent skills for everyday engineering (before/after and feature demo videos, UI/UX revamps and more).",
       "category": "engineering",
       "keywords": ["engineering", "skills", "video", "playwright", "demo", "design", "ux"]
     }

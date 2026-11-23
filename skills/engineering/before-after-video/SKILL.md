@@ -1,12 +1,14 @@
 ---
 name: before-after-video
-description: Before/after demo videos of a UI change. Use when asked to record, show or post the before/after of a UI change, or a demo video of a change for a PR, issue or ticket.
+description: Before/after demo videos of a UI change. Use when asked to record, show or post the before/after of a UI change, or a demo video comparing old and new behavior for a PR, issue or ticket.
 argument-hint: "[PR/issue/ticket URL to post to]"
 ---
 
 # Before/after video
 
 Two MP4s, **before** (old code) and **after** (new code), replay the **same flow** with real input events. A third MP4 shows them **side by side**. Headless video has no pointer, so `scripts/recorder.py` draws one. It also draws a red ring on every click, a yellow "Keys pressed" box (password fields show `•`), a caption bar, a BEFORE/AFTER badge, and a "Browser alert" box for native dialogs.
+
+When nothing existed before (a new feature, screen or app), use [feature-demo-video](../feature-demo-video/SKILL.md) instead: one walkthrough along the ticket's acceptance criteria.
 
 The scripts live in `${CLAUDE_SKILL_DIR}/scripts`. Outside Claude Code that variable is not filled in: use the `scripts/` folder next to this SKILL.md.
 

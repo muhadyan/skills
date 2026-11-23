@@ -8,6 +8,8 @@ from pathlib import Path
 
 UPLOAD_LIMIT_MB = 10  # GitHub's video limit on free plans; the smallest common target
 EVEN_DIMS = "scale=trunc(iw/2)*2:trunc(ih/2)*2"  # libx264 + yuv420p rejects odd sizes
+# libx264 starts about 1.5 threads per core by default; four keep a laptop cool and still encode UI video in real time
+ENCODE_THREADS = ["-threads", "4"]
 
 
 def video_name(mode: str, topic: str | None = None) -> str:

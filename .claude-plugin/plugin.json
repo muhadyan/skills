@@ -1,7 +1,7 @@
 {
   "name": "muhadyan-skills",
-  "version": "0.5.0",
-  "description": "Adyan's agent skills for everyday engineering: before/after demo videos, a session journal and shared agent memory for Obsidian, a full UI/UX revamp workflow, and more.",
+  "version": "0.6.0",
+  "description": "Adyan's agent skills for everyday engineering: before/after and feature demo videos, a session journal and shared agent memory for Obsidian, a full UI/UX revamp workflow, and more.",
   "author": {
     "name": "M Adyan Rohutomo",
     "url": "https://github.com/muhadyan"
@@ -25,6 +25,7 @@
   "skills": [
     "./skills/design/ux-revamp",
     "./skills/engineering/before-after-video",
+    "./skills/engineering/feature-demo-video",
     "./skills/knowledge/session-journal",
     "./skills/knowledge/vault-memory"
   ]

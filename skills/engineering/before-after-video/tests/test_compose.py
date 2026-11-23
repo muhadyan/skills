@@ -43,6 +43,14 @@ class ComposeTest(TempDirCase):
         run_main(str(self.tmp), "--width", "64")
         self.assertTrue((self.tmp / "side_by_side.mp4").exists())
 
+    def test_side_by_side_runs_on_a_fixed_thread_count(self):
+        clip(self.tmp / "t_BEFORE.mp4", 0.5, "red")
+        clip(self.tmp / "t_AFTER.mp4", 0.5, "green")
+        with mock.patch.object(compose, "run_ffmpeg", wraps=compose.run_ffmpeg) as spy:
+            run_main(str(self.tmp), "--topic", "t", "--width", "64")
+        cmd = spy.call_args_list[0].args[0]
+        self.assertEqual(cmd[cmd.index("-threads") + 1], "4")
+
     def test_duration_errors_are_clear(self):
         with self.assertRaisesRegex(RuntimeError, "ffprobe failed"):
             compose.duration(self.tmp / "nope.mp4")

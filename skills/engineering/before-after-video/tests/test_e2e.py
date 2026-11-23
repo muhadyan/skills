@@ -80,6 +80,42 @@ class E2ETest(TempDirCase):
         self.assertTrue((self.tmp / "discount_BEFORE_sheet.png").exists())
         self.assertTrue((self.tmp / "discount_AFTER_sheet.png").exists())
 
+    def caption_box(self, width: int, height: int, text: str) -> tuple:
+        from recorder import Recorder
+        with Recorder("after", self.tmp, topic=f"cap{width}", width=width, height=height) as r:
+            r.goto(self.url("after"))
+            r.caption(text)
+            r.pause(0.3)  # a take needs at least one frame
+            return r.page.evaluate("""() => { const c = document.getElementById('__rec_cap').getBoundingClientRect();
+              const b = document.getElementById('__rec_badge').getBoundingClientRect();
+              return [c.left, c.right, c.bottom, b.top]; }""")
+
+    def test_caption_fits_a_phone_screen_above_the_badge(self):
+        left, right, bottom, badge_top = self.caption_box(390, 844, "AC1: a caption long enough to wrap on a phone")
+        self.assertGreater(right - left, 300)  # not squeezed into half the screen
+        self.assertGreaterEqual(left, 0)
+        self.assertLessEqual(right, 390)
+        self.assertLessEqual(bottom, badge_top)
+
+    def test_caption_keeps_its_desktop_width(self):
+        left, right, _bottom, _badge_top = self.caption_box(1440, 810, "word " * 60)
+        self.assertLessEqual(right - left, 720)
+        self.assertAlmostEqual((left + right) / 2, 720, delta=2)
+
+    def test_pointer_lands_on_short_text_in_a_wide_block(self):
+        from recorder import Recorder
+        with Recorder("after", self.tmp, topic="aim") as r:
+            r.goto(self.url("after"))
+            heading = r.page.locator("header h1")  # flex: 1, so the block is far wider than "Orders"
+            x, y = r.move_to(heading)
+            text = heading.evaluate("""e => { const g = document.createRange(); g.selectNodeContents(e);
+              const b = g.getBoundingClientRect(); return [b.left, b.right, b.top, b.bottom]; }""")
+            block = heading.bounding_box()
+            r.caption("pointer on the heading")
+            r.pause(0.3)
+        self.assertGreater(block["width"], 3 * (text[1] - text[0]))
+        self.assertTrue(text[0] <= x <= text[1] and text[2] <= y <= text[3], (x, y, text))
+
     def test_cut_removes_the_wait_from_the_video(self):
         from recorder import Recorder
         start = time.time()

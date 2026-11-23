@@ -150,6 +150,12 @@ class FrameEncoderTest(TempDirCase):
         enc.on_frame({"timestamp": 300.0, "data": b"C"})
         self.assertEqual(enc.proc.stdin.getvalue(), b"ABBC")
 
+    def test_ffmpeg_runs_on_a_fixed_thread_count(self):
+        calls = []
+        FrameEncoder(self.tmp / "x.mp4", 30, 20, popen=lambda cmd, **k: calls.append(cmd) or FakeProc())
+        cmd = calls[0]
+        self.assertEqual(cmd[cmd.index("-threads") + 1], "4")
+
     def test_dead_ffmpeg_surfaces_at_finish_with_its_error(self):
         enc = FrameEncoder(self.tmp / "x.mp4", 10, 20, clock=FrameClock(10, now_ms=FakeClock()), popen=DeadProc)
         enc.on_frame({"timestamp": 0.0, "data": b"A"})  # must not raise inside the screencast callback
